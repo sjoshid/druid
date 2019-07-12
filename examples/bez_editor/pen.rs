@@ -31,19 +31,13 @@ impl Pen {
             return false;
         }
 
-        // are we currently drawing?
-        if let Some(active) = canvas.active_path.as_mut() {
-            // does this close the path?
-            if active.start.distance(event.pos) < MIN_POINT_DISTANCE {
-                active.add_point(active.start);
-                active.close();
-            } else {
-                active.add_point(event.pos);
-            }
-        // we're not drawing, start a new path
-        } else {
-            canvas.active_path = Some(Path::start(event.pos));
-        }
+        let point = match canvas.active_path().map(Path::start_point) {
+            Some(start) if start.point.distance(event.pos) < MIN_POINT_DISTANCE => start.point,
+            _ => event.pos,
+        };
+
+        canvas.add_point(point);
+
         self.0 = Mouse::Down(event.pos);
         true
     }
@@ -53,9 +47,7 @@ impl Pen {
             return false;
         }
 
-        if let Some(active) = canvas.active_path.take() {
-            canvas.paths_mut().push(active);
-        }
+        canvas.selection_mut().clear();
         true
     }
 
@@ -79,9 +71,7 @@ impl Pen {
             }
         };
         if let Mouse::Drag { start, current } = self.0 {
-            if let Some(active) = canvas.active_path.as_mut() {
-                active.update_for_drag(start, current);
-            }
+            canvas.update_for_drag(start, current);
             true
         } else {
             false
@@ -92,14 +82,23 @@ impl Pen {
         if event.button != MouseButton::Left {
             return false;
         }
+
+        if let Some(path) = canvas.active_path_mut() {
+            if path.is_closed()
+                || path.points().len() > 1 && path.points().last().unwrap().is_corner()
+            {
+                path.clear_trailing();
+            }
+        }
+
         if canvas
-            .active_path
-            .as_ref()
-            .map(|p| p.closed)
+            .active_path_mut()
+            .map(|p| p.is_closed())
             .unwrap_or(false)
         {
-            canvas.finish_active();
+            canvas.selection_mut().clear();
         }
+
         self.0 = Mouse::Up(event.pos);
         true
     }

@@ -26,10 +26,12 @@ use druid::{
 };
 
 mod draw;
+mod path;
 mod pen;
 mod toolbar;
 
-use draw::{draw_active_path, draw_inactive_path};
+use draw::draw_paths;
+use path::{Path, PointId};
 use pen::Pen;
 use toolbar::{Toolbar, ToolbarState};
 
@@ -50,29 +52,6 @@ impl Canvas {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum PathSeg {
-    Straight { end: Point },
-    Cubic { b1: Point, b2: Point, end: Point },
-}
-
-impl PathSeg {
-    fn end(&self) -> Point {
-        match self {
-            PathSeg::Straight { end } => *end,
-            PathSeg::Cubic { end, .. } => *end,
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-struct Path {
-    start: Point,
-    segs: Arc<Vec<PathSeg>>,
-    trailing_off_curve: Option<Point>,
-    closed: bool,
-}
-
 #[derive(Debug, Clone)]
 struct CanvasState {
     tool: Pen,
@@ -91,16 +70,29 @@ impl CanvasState {
     }
 
     fn remove_top_path(&mut self) {
-        if self.contents.active_path.take().is_none() {
-            Arc::make_mut(&mut self.contents.paths).pop();
-        }
+        Arc::make_mut(&mut self.contents.paths).pop();
+        Arc::make_mut(&mut self.contents.selection).clear();
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SelectionId {
+    path_idx: usize,
+    point_id: PointId,
+}
+
+impl SelectionId {
+    fn new(path_idx: usize, point_id: PointId) -> SelectionId {
+        SelectionId { path_idx, point_id }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Contents {
+    next_path_id: usize,
     paths: Arc<Vec<Path>>,
-    active_path: Option<Path>,
+    /// Selected points, including the path index and the point id.
+    selection: Arc<Vec<SelectionId>>,
 }
 
 impl Contents {
@@ -108,10 +100,58 @@ impl Contents {
         Arc::make_mut(&mut self.paths)
     }
 
-    fn finish_active(&mut self) {
-        if let Some(active) = self.active_path.take() {
-            self.paths_mut().push(active);
+    pub(crate) fn selection_mut(&mut self) -> &mut Vec<SelectionId> {
+        Arc::make_mut(&mut self.selection)
+    }
+
+    /// Return the index of the path that is currently drawing. To be currently
+    /// drawing, there must be a single currently selected point.
+    fn active_path_idx(&self) -> Option<usize> {
+        if self.selection.len() == 1 {
+            Some(self.selection[0].path_idx)
+        } else {
+            None
         }
+    }
+
+    pub(crate) fn active_path_mut(&mut self) -> Option<&mut Path> {
+        match self.active_path_idx() {
+            Some(idx) => self.paths_mut().get_mut(idx),
+            None => None,
+        }
+    }
+
+    pub(crate) fn active_path(&self) -> Option<&Path> {
+        match self.active_path_idx() {
+            Some(idx) => self.paths.get(idx),
+            None => None,
+        }
+    }
+
+    pub(crate) fn new_path(&mut self, start: Point) {
+        let path = Path::new(start);
+        let path_id = self.paths.len();
+        let point_id = path.last_point_id();
+
+        self.paths_mut().push(path);
+        self.selection_mut().clear();
+        self.selection_mut()
+            .push(SelectionId::new(path_id, point_id));
+    }
+
+    pub(crate) fn add_point(&mut self, point: Point) {
+        if self.active_path_idx().is_none() {
+            self.new_path(point);
+        } else {
+            let new_point = self.active_path_mut().unwrap().append_point(point);
+            self.selection_mut()[0].point_id = new_point;
+        }
+        //eprintln!("SEL: {:?}", self.selection.first());
+    }
+
+    pub(crate) fn update_for_drag(&mut self, _start: Point, end: Point) {
+        self.active_path_mut().unwrap().update_for_drag(end);
+        //eprintln!("SEL: {:?}", self.selection.first());
     }
 }
 
@@ -128,63 +168,6 @@ pub(crate) trait Tool {
     fn event(&mut self, data: &mut Contents, event: &Event) -> bool;
 }
 
-impl Path {
-    fn start(start: Point) -> Path {
-        Path {
-            start,
-            ..Path::default()
-        }
-    }
-
-    fn add_point(&mut self, point: Point) {
-        if let Some(ctrl) = self.trailing_off_curve.take() {
-            self.push_cubic(ctrl, point, point);
-        } else {
-            self.push_line(point);
-        }
-    }
-
-    /// Update this path in response to the user click-dragging
-    fn update_for_drag(&mut self, start: Point, current: Point) {
-        // if necessary, convert the last path segment to a cubic.
-        let num_segs = self.segs.len();
-        let prev_end = if num_segs >= 2 {
-            self.segs.iter().nth(num_segs - 2).unwrap().end()
-        } else {
-            self.start
-        };
-
-        if let Some(last @ PathSeg::Straight { .. }) = Arc::make_mut(&mut self.segs).last_mut() {
-            *last = PathSeg::Cubic {
-                b1: prev_end,
-                b2: start,
-                end: start,
-            };
-        }
-
-        // if this is not the first point, adjust the previous point's second control point.
-        if let Some(PathSeg::Cubic { b2, .. }) = Arc::make_mut(&mut self.segs).last_mut() {
-            *b2 = start - (current - start);
-        }
-
-        self.trailing_off_curve = Some(current);
-    }
-
-    fn push_cubic(&mut self, b1: Point, b2: Point, end: Point) {
-        let seg = PathSeg::Cubic { b1, b2, end };
-        Arc::make_mut(&mut self.segs).push(seg)
-    }
-
-    fn push_line(&mut self, end: Point) {
-        let seg = PathSeg::Straight { end };
-        Arc::make_mut(&mut self.segs).push(seg)
-    }
-
-    fn close(&mut self) {
-        self.closed = true;
-    }
-}
-
 // It should be able to get this from a derive macro.
 impl Data for CanvasState {
     fn same(&self, other: &Self) -> bool {
@@ -196,16 +179,7 @@ impl Data for CanvasState {
 
 impl Data for Contents {
     fn same(&self, other: &Self) -> bool {
-        self.paths.same(&other.paths) && self.active_path == other.active_path
-    }
-}
-
-impl Data for Path {
-    fn same(&self, other: &Self) -> bool {
-        self.segs.same(&other.segs)
-            && self.closed.same(&other.closed)
-            && self.trailing_off_curve == other.trailing_off_curve
-            && self.start == other.start
+        self.paths.same(&other.paths) && self.selection.same(&other.selection)
     }
 }
 
@@ -218,13 +192,7 @@ impl Widget<CanvasState> for Canvas {
         _env: &Env,
     ) {
         paint_ctx.render_ctx.clear(BG_COLOR);
-        for path in data.contents.paths.iter() {
-            draw_inactive_path(path, paint_ctx);
-        }
-
-        if let Some(active) = data.contents.active_path.as_ref() {
-            draw_active_path(active, &data.tool, paint_ctx);
-        }
+        draw_paths(&data.contents.paths, &data.contents.selection, paint_ctx);
         self.toolbar
             .paint_with_offset(paint_ctx, &data.toolbar, _env);
     }
