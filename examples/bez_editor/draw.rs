@@ -1,12 +1,16 @@
 //! Drawing algorithms and helpers
 
-use super::path::PointType;
-use super::{Path, SelectionId};
-use druid::kurbo::{Circle, Line, Point};
+use std::collections::BTreeSet;
+
+use super::path::{Path, PointId, PointType};
+use super::Tool;
+use druid::kurbo::{Circle, Line, Point, Rect};
 use druid::piet::{Color, FillRule::NonZero, RenderContext};
 use druid::PaintCtx;
 
 const PATH_COLOR: Color = Color::rgb24(0x00_00_00);
+const SELECTION_RECT_BG_COLOR: Color = Color::rgba32(0xDD_DD_DD_55);
+const SELECTION_RECT_STROKE_COLOR: Color = Color::rgb24(0x53_8B_BB);
 const ON_CURVE_POINT_COLOR: Color = Color::rgb24(0x0b_2b_db);
 const OFF_CURVE_POINT_COLOR: Color = Color::rgb24(0xbb_bb_bb);
 const OFF_CURVE_HANDLE_COLOR: Color = Color::rgb24(0xbb_bb_bb);
@@ -52,6 +56,13 @@ trait PaintHelpers: RenderContext {
             self.stroke(circ, &brush, 1.0, None);
         }
     }
+
+    fn draw_selection_rect(&mut self, rect: Rect) {
+        let bg_brush = self.solid_brush(SELECTION_RECT_BG_COLOR);
+        let stroke_brush = self.solid_brush(SELECTION_RECT_STROKE_COLOR);
+        self.fill(rect, &bg_brush, NonZero);
+        self.stroke(rect, &stroke_brush, 1.0, None);
+    }
 }
 
 impl<T: RenderContext> PaintHelpers for T {}
@@ -65,11 +76,11 @@ struct PointStyle {
 struct PointIter<'a> {
     idx: usize,
     path: &'a Path,
-    sels: &'a [SelectionId],
+    sels: &'a BTreeSet<PointId>,
 }
 
 impl<'a> PointIter<'a> {
-    fn new(path: &'a Path, sels: &'a [SelectionId]) -> Self {
+    fn new(path: &'a Path, sels: &'a BTreeSet<PointId>) -> Self {
         PointIter { idx: 0, path, sels }
     }
 }
@@ -81,8 +92,7 @@ impl<'a> std::iter::Iterator for PointIter<'a> {
             None => None,
             Some(path_point) => {
                 let typ = path_point.typ;
-                //FIXME: this is quadratic
-                let selected = self.sels.iter().any(|s| s.point_id == path_point.id);
+                let selected = self.sels.contains(&path_point.id);
                 self.idx += 1;
                 Some(PointStyle {
                     point: path_point.point,
@@ -129,7 +139,12 @@ fn draw_control_point_lines(path: &Path, paint_ctx: &mut PaintCtx) {
     }
 }
 
-pub(crate) fn draw_paths(paths: &[Path], sels: &[SelectionId], ctx: &mut PaintCtx) {
+pub(crate) fn draw_paths(
+    paths: &[Path],
+    sels: &BTreeSet<PointId>,
+    tool: &dyn Tool,
+    ctx: &mut PaintCtx,
+) {
     for path in paths {
         draw_inactive_path(path, ctx);
         draw_control_point_lines(path, ctx);
@@ -152,5 +167,9 @@ pub(crate) fn draw_paths(paths: &[Path], sels: &[SelectionId], ctx: &mut PaintCt
                 ctx.render_ctx.draw_off_curve_point(*pt, true);
             }
         }
+    }
+
+    if let Some(rect) = tool.selection_rect() {
+        ctx.render_ctx.draw_selection_rect(rect);
     }
 }

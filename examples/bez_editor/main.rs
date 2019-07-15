@@ -15,9 +15,10 @@
 //! A simple bezier path editor.
 
 use std::any::Any;
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use druid::kurbo::{Point, Rect, Size};
+use druid::kurbo::{Point, Rect, Size, Vec2};
 use druid::piet::{Color, RenderContext};
 use druid::shell::window::Cursor;
 use druid::shell::{runloop, WindowBuilder};
@@ -35,7 +36,7 @@ mod select;
 mod toolbar;
 
 use draw::draw_paths;
-use path::{Path, PointId};
+use path::{Path, PathPoint, PointId};
 use pen::Pen;
 use select::Select;
 use toolbar::{Toolbar, ToolbarState};
@@ -92,24 +93,12 @@ impl CanvasState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct SelectionId {
-    path_idx: usize,
-    point_id: PointId,
-}
-
-impl SelectionId {
-    fn new(path_idx: usize, point_id: PointId) -> SelectionId {
-        SelectionId { path_idx, point_id }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Contents {
     next_path_id: usize,
     paths: Arc<Vec<Path>>,
     /// Selected points, including the path index and the point id.
-    selection: Arc<Vec<SelectionId>>,
+    selection: Arc<BTreeSet<PointId>>,
 }
 
 impl Contents {
@@ -117,7 +106,7 @@ impl Contents {
         Arc::make_mut(&mut self.paths)
     }
 
-    pub(crate) fn selection_mut(&mut self) -> &mut Vec<SelectionId> {
+    pub(crate) fn selection_mut(&mut self) -> &mut BTreeSet<PointId> {
         Arc::make_mut(&mut self.selection)
     }
 
@@ -125,7 +114,8 @@ impl Contents {
     /// drawing, there must be a single currently selected point.
     fn active_path_idx(&self) -> Option<usize> {
         if self.selection.len() == 1 {
-            Some(self.selection[0].path_idx)
+            let active = self.selection.iter().next().unwrap();
+            self.paths.iter().position(|p| *p == *active)
         } else {
             None
         }
@@ -147,13 +137,11 @@ impl Contents {
 
     pub(crate) fn new_path(&mut self, start: Point) {
         let path = Path::new(start);
-        let path_id = self.paths.len();
-        let point_id = path.last_point_id();
+        let point = path.points()[0].id;
 
         self.paths_mut().push(path);
         self.selection_mut().clear();
-        self.selection_mut()
-            .push(SelectionId::new(path_id, point_id));
+        self.selection_mut().insert(point);
     }
 
     pub(crate) fn add_point(&mut self, point: Point) {
@@ -161,21 +149,43 @@ impl Contents {
             self.new_path(point);
         } else {
             let new_point = self.active_path_mut().unwrap().append_point(point);
-            self.selection_mut()[0].point_id = new_point;
+            self.selection_mut().clear();
+            self.selection_mut().insert(new_point);
         }
-        //eprintln!("SEL: {:?}", self.selection.first());
+    }
+
+    pub(crate) fn nudge_selection(&mut self, nudge: Vec2) {
+        if self.selection.is_empty() {
+            return;
+        }
+
+        let Contents {
+            paths, selection, ..
+        } = self;
+        for point in selection.iter().cloned() {
+            if let Some(path) = Arc::make_mut(paths).iter_mut().find(|p| **p == point) {
+                path.nudge_point(point, nudge);
+            }
+        }
     }
 
     pub(crate) fn update_for_drag(&mut self, _start: Point, end: Point) {
         self.active_path_mut().unwrap().update_for_drag(end);
-        //eprintln!("SEL: {:?}", self.selection.first());
+    }
+
+    pub(crate) fn iter_points(&self) -> impl Iterator<Item = &PathPoint> {
+        self.paths.iter().flat_map(|p| p.points().iter())
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Mouse {
     Down(Point),
-    Drag { start: Point, current: Point },
+    Drag {
+        start: Point,
+        last: Point,
+        current: Point,
+    },
     Up(Point),
 }
 
@@ -185,11 +195,18 @@ pub(crate) trait Tool: Debug + Any {
     /// Called when the tool should process some event. The tool should modify
     /// `data` as necessary, and return `true` if the event is handled.
     fn event(&mut self, data: &mut Contents, event: &Event) -> bool;
-    /// The current position of the tool. Used to set the new tool's position
-    /// when the tool changes.
+
+    /// The current rectangular selection, if this is the selection tool, and
+    /// whether or not the shift key is down.
+    fn selection_rect(&self) -> Option<Rect> {
+        None
+    }
 
     fn boxed_clone(&self) -> Box<dyn Tool>;
-    fn same_impl(&self, other: &dyn Any) -> bool;
+    //TODO: this doesn't work; remove me, probably make tool an `enum`.
+    fn same_impl(&self, _other: &dyn Any) -> bool {
+        false
+    }
     fn name(&self) -> &str;
 }
 
@@ -228,7 +245,12 @@ impl Widget<CanvasState> for Canvas {
         _env: &Env,
     ) {
         paint_ctx.render_ctx.clear(BG_COLOR);
-        draw_paths(&data.contents.paths, &data.contents.selection, paint_ctx);
+        draw_paths(
+            &data.contents.paths,
+            &data.contents.selection,
+            &*data.tool,
+            paint_ctx,
+        );
         self.toolbar
             .paint_with_offset(paint_ctx, &data.toolbar, _env);
     }

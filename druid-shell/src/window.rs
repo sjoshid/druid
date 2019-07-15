@@ -164,6 +164,22 @@ pub enum MouseButton {
     X2,
 }
 
+impl MouseButton {
+    pub fn is_left(self) -> bool {
+        match self {
+            MouseButton::Left => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_right(self) -> bool {
+        match self {
+            MouseButton::Right => true,
+            _ => false,
+        }
+    }
+}
+
 //NOTE: this currently only contains cursors that are included by default on
 //both Windows and macOS. We may want to provide polyfills for various additional cursors,
 //and we will also want to add some mechanism for adding custom cursors.

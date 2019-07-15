@@ -1,16 +1,32 @@
 use std::sync::Arc;
 
-use druid::kurbo::{BezPath, Point};
+use druid::kurbo::{BezPath, Point, Vec2};
 use druid::Data;
 
-/// We give points unique integer identifiers.
-fn next_id() -> PointId {
+/// We give paths & points unique integer identifiers.
+fn next_id() -> usize {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-pub type PointId = usize;
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+pub struct PointId {
+    path: usize,
+    point: usize,
+}
+
+impl std::cmp::PartialEq<Path> for PointId {
+    fn eq(&self, other: &Path) -> bool {
+        self.path == other.id
+    }
+}
+
+impl std::cmp::PartialEq<PointId> for Path {
+    fn eq(&self, other: &PointId) -> bool {
+        self.id == other.path
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PointType {
@@ -29,6 +45,7 @@ pub struct PathPoint {
 
 #[derive(Debug, Clone)]
 pub struct Path {
+    id: usize,
     points: Arc<Vec<PathPoint>>,
     trailing: Option<Point>,
     closed: bool,
@@ -51,17 +68,25 @@ impl PointType {
 }
 
 impl PathPoint {
-    fn off_curve(point: Point) -> PathPoint {
+    fn off_curve(path: usize, point: Point) -> PathPoint {
+        let id = PointId {
+            path,
+            point: next_id(),
+        };
         PathPoint {
-            id: next_id(),
+            id,
             point,
             typ: PointType::OffCurve,
         }
     }
 
-    fn on_curve(point: Point) -> PathPoint {
+    fn on_curve(path: usize, point: Point) -> PathPoint {
+        let id = PointId {
+            path,
+            point: next_id(),
+        };
         PathPoint {
-            id: next_id(),
+            id,
             point,
             typ: PointType::Corner,
         }
@@ -78,13 +103,11 @@ impl PathPoint {
 
 impl Path {
     pub fn new(point: Point) -> Path {
-        let start = PathPoint {
-            id: next_id(),
-            point,
-            typ: PointType::Corner,
-        };
+        let id = next_id();
+        let start = PathPoint::on_curve(id, point);
 
         Path {
+            id,
             points: Arc::new(vec![start]),
             closed: false,
             trailing: None,
@@ -156,9 +179,18 @@ impl Path {
         if !self.closed && point == self.points[0].point {
             return self.close();
         }
-        let new = PathPoint::on_curve(point);
+        let new = PathPoint::on_curve(self.id, point);
         Arc::make_mut(&mut self.points).push(new);
         new.id
+    }
+
+    pub fn nudge_point(&mut self, point_id: PointId, v: Vec2) {
+        if let Some(p) = Arc::make_mut(&mut self.points)
+            .iter_mut()
+            .find(|p| p.id == point_id)
+        {
+            p.point += v;
+        }
     }
 
     /// Called when the user drags (modifying the bezier control points) after clicking.
@@ -187,7 +219,11 @@ impl Path {
                 .take()
                 .unwrap_or(self.points.last().unwrap().point);
             let p2 = prev.point - (handle - prev.point);
-            let pts = &[PathPoint::off_curve(p1), PathPoint::off_curve(p2), prev];
+            let pts = &[
+                PathPoint::off_curve(self.id, p1),
+                PathPoint::off_curve(self.id, p2),
+                prev,
+            ];
             Arc::make_mut(&mut self.points).extend(pts);
         }
         self.trailing = Some(handle);
@@ -203,16 +239,6 @@ impl Path {
             Arc::make_mut(&mut self.points)[len - 2].point = on_curve_pt - (handle - on_curve_pt);
         }
         self.trailing = Some(handle);
-    }
-
-    pub fn last_point_id(&self) -> PointId {
-        // all paths have at least one on-curve point.
-        self.points
-            .iter()
-            .rev()
-            .find(|p| p.is_on_curve())
-            .unwrap()
-            .id
     }
 
     // in an open path, the first point is essentially a `move_to` command.

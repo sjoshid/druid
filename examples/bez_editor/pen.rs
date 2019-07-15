@@ -2,7 +2,6 @@
 
 use druid::kurbo::Point;
 use druid::{Event, MouseButton, MouseEvent};
-use std::any::Any;
 
 use super::{Contents, Mouse, Path, Tool, MIN_POINT_DISTANCE};
 
@@ -23,14 +22,6 @@ impl Tool for Pen {
 
     fn boxed_clone(&self) -> Box<dyn Tool> {
         Box::new(self.clone())
-    }
-
-    fn same_impl(&self, other: &dyn Any) -> bool {
-        if let Some(other) = other.downcast_ref::<Pen>() {
-            self.0 == other.0
-        } else {
-            false
-        }
     }
 
     fn name(&self) -> &str {
@@ -72,14 +63,16 @@ impl Pen {
         // does this start or change a drag?
         self.0 = match self.0 {
             Mouse::Up(_) => Mouse::Up(event.pos),
-            Mouse::Drag { start, .. } => Mouse::Drag {
+            Mouse::Drag { start, current, .. } => Mouse::Drag {
                 start,
+                last: current,
                 current: event.pos,
             },
             Mouse::Down(point) => {
                 if point.distance(event.pos) > MIN_POINT_DISTANCE {
                     Mouse::Drag {
                         start: point,
+                        last: point,
                         current: event.pos,
                     }
                 } else {
@@ -87,7 +80,7 @@ impl Pen {
                 }
             }
         };
-        if let Mouse::Drag { start, current } = self.0 {
+        if let Mouse::Drag { start, current, .. } = self.0 {
             canvas.update_for_drag(start, current);
             true
         } else {
