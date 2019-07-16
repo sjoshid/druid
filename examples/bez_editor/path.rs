@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use druid::kurbo::{BezPath, Point, Vec2};
@@ -30,10 +31,9 @@ impl std::cmp::PartialEq<PointId> for Path {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PointType {
-    Corner,
-    Curve,
+    OnCurve,
+    OnCurveSmooth,
     OffCurve,
-    Smooth,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,16 +52,9 @@ pub struct Path {
 }
 
 impl PointType {
-    pub fn is_corner(self) -> bool {
-        match self {
-            PointType::Corner => true,
-            _ => false,
-        }
-    }
-
     pub fn is_on_curve(self) -> bool {
         match self {
-            PointType::Curve | PointType::Smooth | PointType::Corner => true,
+            PointType::OnCurve | PointType::OnCurveSmooth => true,
             PointType::OffCurve => false,
         }
     }
@@ -88,16 +81,12 @@ impl PathPoint {
         PathPoint {
             id,
             point,
-            typ: PointType::Corner,
+            typ: PointType::OnCurve,
         }
     }
 
     pub fn is_on_curve(&self) -> bool {
         self.typ.is_on_curve()
-    }
-
-    pub fn is_corner(&self) -> bool {
-        self.typ.is_corner()
     }
 }
 
@@ -138,7 +127,7 @@ impl Path {
     /// We always do this for the first point, if it exists; otherwise
     /// we do it for curve points only.
     pub fn should_draw_trailing(&self) -> bool {
-        self.points().len() == 1 || !self.points.last().unwrap().is_corner()
+        self.points.len() == 1 || self.last_segment_is_curve()
     }
 
     /// Returns the start point of the path.
@@ -154,6 +143,7 @@ impl Path {
         let mut bez = BezPath::new();
         bez.move_to(self.start_point().point);
         let mut i = if self.closed { 0 } else { 1 };
+        self.debug_print_points();
 
         while i < self.points.len() {
             if self.points[i].is_on_curve() {
@@ -163,7 +153,7 @@ impl Path {
                 bez.curve_to(
                     self.points[i].point,
                     self.points[i + 1].point,
-                    self.points[i + 2].point,
+                    self.points[self.next_idx(i + 1)].point,
                 );
                 i += 3;
             }
@@ -205,7 +195,12 @@ impl Path {
     }
 
     fn debug_print_points(&self) {
-        eprintln!("path {}, len {}", self.id, self.points.len());
+        eprintln!(
+            "path {}, len {} closed {}",
+            self.id,
+            self.points.len(),
+            self.closed
+        );
         for point in self.points.iter() {
             eprintln!(
                 "[{}, {}]: {:?} {:?}",
@@ -235,9 +230,6 @@ impl Path {
         self.debug_print_points();
 
         match self.points[idx].typ {
-            PointType::Corner => {
-                self.points_mut().remove(idx);
-            }
             PointType::OffCurve => {
                 // delete both of the off curve points for this segment
                 let other_id = if self.points[prev_idx].typ == PointType::OffCurve {
@@ -248,60 +240,69 @@ impl Path {
                 };
                 self.points_mut()
                     .retain(|p| p.id != point_id && p.id != other_id);
-                // convert the next on-curve point to a corner
-                let id = if idx >= self.points.len() { 0 } else { idx };
-                self.points_mut()[id].typ = PointType::Corner;
+            }
+            _on_curve if self.points.len() == 1 => {
+                self.points_mut().clear();
+            }
+            // with less than 4 points they must all be on curve
+            _on_curve if self.points.len() == 4 => {
+                self.points_mut()
+                    .retain(|p| p.is_on_curve() && p.id != point_id);
+            }
+
+            _on_curve if self.points[prev_idx].is_on_curve() => {
+                // this is a line segment
+                self.points_mut().remove(idx);
+            }
+            _on_curve if self.points[next_idx].is_on_curve() => {
+                // if we neighbour a corner point, leave handles (neighbour becomes curve)
+                self.points_mut().remove(idx);
             }
             _ => {
-                // If this is one of only two remaining on-curve points, leave a single corner
-                // point.
-                if self.points.len() == 4 {
-                    let prev2 = self.prev_idx(prev_idx);
-                    let to_del = [
-                        self.points[prev_idx].id,
-                        self.points[prev2].id,
-                        self.points[idx].id,
-                    ];
-                    self.points_mut().retain(|p| !to_del.contains(&p.id));
-                    self.points_mut().first_mut().unwrap().typ = PointType::Corner;
-                } else if self.points[next_idx].is_on_curve() {
-                    // if we neighbour a corner point, leave handles (neighbour becomes curve)
-                    self.points_mut().remove(idx);
-                    self.points_mut()[idx].typ = PointType::Curve;
-                } else {
-                    // deleting a non-corner point also deletes two off_curve points
-                    let to_del = [
-                        self.points[prev_idx].id,
-                        self.points[idx].id,
-                        self.points[next_idx].id,
-                    ];
-                    self.points_mut().retain(|p| !to_del.contains(&p.id));
+                assert!(self.points.len() > 4);
+                let prev = self.points[prev_idx];
+                let next = self.points[next_idx];
+                assert!(!prev.is_on_curve() && !next.is_on_curve());
+                let to_del = [prev.id, next.id, point_id];
+                self.points_mut().retain(|p| !to_del.contains(&p.id));
+                if self.points.len() == 3 {
+                    self.points_mut().retain(|p| p.is_on_curve());
                 }
             }
+        }
+
+        // normalize our representation
+        let len = self.points.len();
+        if len > 2 && !self.points[0].is_on_curve() && !self.points[len - 1].is_on_curve() {
+            self.points_mut().rotate_left(1);
+        }
+
+        // if we have fewer than three on_curve points we are open.
+        if self.points.len() < 3 {
+            self.closed = false;
         }
     }
 
     /// Called when the user drags (modifying the bezier control points) after clicking.
     pub fn update_for_drag(&mut self, handle: Point) {
         assert!(!self.points.is_empty());
-        if self
-            .points
-            .last()
-            .map(|p| p.typ == PointType::Corner)
-            .unwrap()
-        {
+        if !self.last_segment_is_curve() {
             self.convert_last_to_curve(handle);
         } else {
             self.update_trailing(handle);
         }
     }
 
+    pub fn last_segment_is_curve(&self) -> bool {
+        let len = self.points.len();
+        len > 2 && !self.points[len - 2].is_on_curve()
+    }
+
     /// If the user drags after mousedown, we convert the last point to a curve.
     fn convert_last_to_curve(&mut self, handle: Point) {
         assert!(!self.points.is_empty());
         if self.points.len() > 1 {
-            let mut prev = Arc::make_mut(&mut self.points).pop().unwrap();
-            prev.typ = PointType::Curve;
+            let prev = self.points_mut().pop().unwrap();
             let p1 = self
                 .trailing
                 .take()
