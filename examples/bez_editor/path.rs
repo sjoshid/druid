@@ -12,8 +12,8 @@ fn next_id() -> usize {
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct PointId {
-    path: usize,
-    point: usize,
+    pub(crate) path: usize,
+    pub(crate) point: usize,
 }
 
 impl std::cmp::PartialEq<Path> for PointId {
@@ -188,7 +188,14 @@ impl Path {
         new.id
     }
 
-    pub fn nudge_point(&mut self, point_id: PointId, v: Vec2) {
+    //FIXME: nudge handle points along with main points
+    pub fn nudge_points(&mut self, points: &[PointId], v: Vec2) {
+        for point in points {
+            self.nudge_point(*point, v)
+        }
+    }
+
+    fn nudge_point(&mut self, point_id: PointId, v: Vec2) {
         if let Some(p) = Arc::make_mut(&mut self.points)
             .iter_mut()
             .find(|p| p.id == point_id)
@@ -197,7 +204,25 @@ impl Path {
         }
     }
 
-    pub fn delete_point(&mut self, point_id: PointId) {
+    fn debug_print_points(&self) {
+        eprintln!("path {}, len {}", self.id, self.points.len());
+        for point in self.points.iter() {
+            eprintln!(
+                "[{}, {}]: {:?} {:?}",
+                point.id.path, point.id.point, point.point, point.typ
+            );
+        }
+    }
+
+    pub fn delete_points(&mut self, points: &[PointId]) {
+        eprintln!("deleting {:?}", points);
+        for point in points {
+            self.delete_point(*point)
+        }
+    }
+
+    //FIXME: this is currently buggy :(
+    fn delete_point(&mut self, point_id: PointId) {
         let idx = match self.points.iter().position(|p| p.id == point_id) {
             Some(idx) => idx,
             None => return,
@@ -205,6 +230,9 @@ impl Path {
 
         let prev_idx = self.prev_idx(idx);
         let next_idx = self.next_idx(idx);
+
+        eprintln!("deleting {:?}", point_id);
+        self.debug_print_points();
 
         match self.points[idx].typ {
             PointType::Corner => {

@@ -96,6 +96,53 @@ pub(crate) struct Contents {
     selection: Arc<BTreeSet<PointId>>,
 }
 
+/// A helper for iterating through a selection in per-path chunks.
+struct PathSelection {
+    inner: Vec<PointId>,
+}
+
+impl PathSelection {
+    fn new(src: &BTreeSet<PointId>) -> PathSelection {
+        let mut inner: Vec<_> = src.iter().copied().collect();
+        inner.sort();
+        PathSelection { inner }
+    }
+
+    fn iter(&self) -> PathSelectionIter {
+        PathSelectionIter {
+            inner: &self.inner,
+            idx: 0,
+        }
+    }
+}
+
+struct PathSelectionIter<'a> {
+    inner: &'a [PointId],
+    idx: usize,
+}
+
+impl<'a> Iterator for PathSelectionIter<'a> {
+    type Item = &'a [PointId];
+    fn next(&mut self) -> Option<&'a [PointId]> {
+        if self.idx >= self.inner.len() {
+            return None;
+        }
+        let path_id = self.inner[self.idx].path;
+        let end_idx = self.inner[self.idx..]
+            .iter()
+            .position(|p| p.path != path_id)
+            .unwrap_or(self.inner.len());
+        let range = self.idx..end_idx;
+        self.idx = end_idx;
+        // probably unnecessary, but we don't expect empty slices
+        if range.start == range.end {
+            None
+        } else {
+            Some(&self.inner[range])
+        }
+    }
+}
+
 impl Contents {
     pub(crate) fn paths_mut(&mut self) -> &mut Vec<Path> {
         Arc::make_mut(&mut self.paths)
@@ -114,6 +161,10 @@ impl Contents {
         } else {
             None
         }
+    }
+
+    fn path_for_point_mut(&mut self, point: PointId) -> Option<&mut Path> {
+        self.paths_mut().iter_mut().find(|p| **p == point)
     }
 
     pub(crate) fn active_path_mut(&mut self) -> Option<&mut Path> {
@@ -154,21 +205,20 @@ impl Contents {
             return;
         }
 
-        let Contents {
-            paths, selection, ..
-        } = self;
-        for point in selection.iter().cloned() {
-            if let Some(path) = Arc::make_mut(paths).iter_mut().find(|p| **p == point) {
-                path.nudge_point(point, nudge);
+        let to_nudge = PathSelection::new(&self.selection);
+        for path_points in to_nudge.iter() {
+            if let Some(path) = self.path_for_point_mut(path_points[0]) {
+                path.nudge_points(path_points, nudge);
             }
         }
     }
 
     pub(crate) fn delete_selection(&mut self) {
-        let to_delete = std::mem::replace(self.selection_mut(), BTreeSet::new());
-        for sel in to_delete.iter() {
-            if let Some(path) = self.paths_mut().iter_mut().find(|p| *p == sel) {
-                path.delete_point(*sel);
+        let to_delete = PathSelection::new(&self.selection);
+        self.selection_mut().clear();
+        for path_points in to_delete.iter() {
+            if let Some(path) = self.path_for_point_mut(path_points[0]) {
+                path.delete_points(path_points);
             }
         }
         self.paths_mut().retain(|p| !p.points().is_empty());
