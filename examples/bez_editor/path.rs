@@ -11,7 +11,7 @@ fn next_id() -> usize {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Hash, Eq, Ord)]
 pub struct PointId {
     pub(crate) path: usize,
     pub(crate) point: usize,
@@ -178,10 +178,28 @@ impl Path {
         new.id
     }
 
-    //FIXME: nudge handle points along with main points
     pub fn nudge_points(&mut self, points: &[PointId], v: Vec2) {
+        let mut to_nudge = HashSet::new();
         for point in points {
-            self.nudge_point(*point, v)
+            to_nudge.insert(*point);
+            let idx = match self.points.iter().position(|p| p.id == *point) {
+                Some(idx) => idx,
+                None => continue,
+            };
+            if self.points[idx].is_on_curve() {
+                let prev = self.prev_idx(idx);
+                let next = self.next_idx(idx);
+                if !self.points[prev].is_on_curve() {
+                    to_nudge.insert(self.points[prev].id);
+                }
+                if !self.points[next].is_on_curve() {
+                    to_nudge.insert(self.points[next].id);
+                }
+            }
+        }
+
+        for point in to_nudge {
+            self.nudge_point(point, v);
         }
     }
 
