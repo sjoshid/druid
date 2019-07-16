@@ -122,6 +122,10 @@ impl Path {
         self.points.as_slice()
     }
 
+    fn points_mut(&mut self) -> &mut Vec<PathPoint> {
+        Arc::make_mut(&mut self.points)
+    }
+
     pub fn trailing(&self) -> Option<&Point> {
         self.trailing.as_ref()
     }
@@ -193,6 +197,62 @@ impl Path {
         }
     }
 
+    pub fn delete_point(&mut self, point_id: PointId) {
+        let idx = match self.points.iter().position(|p| p.id == point_id) {
+            Some(idx) => idx,
+            None => return,
+        };
+
+        let prev_idx = self.prev_idx(idx);
+        let next_idx = self.next_idx(idx);
+
+        match self.points[idx].typ {
+            PointType::Corner => {
+                self.points_mut().remove(idx);
+            }
+            PointType::OffCurve => {
+                // delete both of the off curve points for this segment
+                let other_id = if self.points[prev_idx].typ == PointType::OffCurve {
+                    self.points[prev_idx].id
+                } else {
+                    assert!(self.points[next_idx].typ == PointType::OffCurve);
+                    self.points[next_idx].id
+                };
+                self.points_mut()
+                    .retain(|p| p.id != point_id && p.id != other_id);
+                // convert the next on-curve point to a corner
+                let id = if idx >= self.points.len() { 0 } else { idx };
+                self.points_mut()[id].typ = PointType::Corner;
+            }
+            _ => {
+                // If this is one of only two remaining on-curve points, leave a single corner
+                // point.
+                if self.points.len() == 4 {
+                    let prev2 = self.prev_idx(prev_idx);
+                    let to_del = [
+                        self.points[prev_idx].id,
+                        self.points[prev2].id,
+                        self.points[idx].id,
+                    ];
+                    self.points_mut().retain(|p| !to_del.contains(&p.id));
+                    self.points_mut().first_mut().unwrap().typ = PointType::Corner;
+                } else if self.points[next_idx].is_on_curve() {
+                    // if we neighbour a corner point, leave handles (neighbour becomes curve)
+                    self.points_mut().remove(idx);
+                    self.points_mut()[idx].typ = PointType::Curve;
+                } else {
+                    // deleting a non-corner point also deletes two off_curve points
+                    let to_del = [
+                        self.points[prev_idx].id,
+                        self.points[idx].id,
+                        self.points[next_idx].id,
+                    ];
+                    self.points_mut().retain(|p| !to_del.contains(&p.id));
+                }
+            }
+        }
+    }
+
     /// Called when the user drags (modifying the bezier control points) after clicking.
     pub fn update_for_drag(&mut self, handle: Point) {
         assert!(!self.points.is_empty());
@@ -248,6 +308,42 @@ impl Path {
         Arc::make_mut(&mut self.points).rotate_left(1);
         self.closed = true;
         self.points.last().unwrap().id
+    }
+
+    #[inline]
+    fn prev_idx(&self, idx: usize) -> usize {
+        if idx == 0 {
+            self.points.len() - 1
+        } else {
+            idx - 1
+        }
+    }
+
+    #[inline]
+    fn next_idx(&self, idx: usize) -> usize {
+        (idx + 1) % self.points.len()
+    }
+
+    pub(crate) fn prev_point(&self, point: PointId) -> PointId {
+        assert!(point.path == self.id);
+        let idx = self
+            .points
+            .iter()
+            .position(|p| p.id == point)
+            .expect("bad input to prev_point");
+        let idx = self.prev_idx(idx);
+        self.points[idx].id
+    }
+
+    pub(crate) fn next_point(&self, point: PointId) -> PointId {
+        assert!(point.path == self.id);
+        let idx = self
+            .points
+            .iter()
+            .position(|p| p.id == point)
+            .expect("bad input to next_point");
+        let idx = self.next_idx(idx);
+        self.points[idx].id
     }
 }
 

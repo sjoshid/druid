@@ -44,7 +44,7 @@ use toolbar::{Toolbar, ToolbarState};
 const BG_COLOR: Color = Color::rgb24(0xfb_fb_fb);
 const TOOLBAR_POSITION: Point = Point::new(8., 8.);
 
-pub(crate) const MIN_POINT_DISTANCE: f64 = 3.0;
+pub(crate) const MIN_POINT_DISTANCE: f64 = 10.0;
 
 struct Canvas {
     toolbar: WidgetPod<ToolbarState, Toolbar>,
@@ -73,11 +73,6 @@ impl CanvasState {
             contents: Contents::default(),
             toolbar: ToolbarState::basic(),
         }
-    }
-
-    fn remove_top_path(&mut self) {
-        Arc::make_mut(&mut self.contents.paths).pop();
-        Arc::make_mut(&mut self.contents.selection).clear();
     }
 
     fn update_tool_if_necessary(&mut self) {
@@ -167,6 +162,50 @@ impl Contents {
                 path.nudge_point(point, nudge);
             }
         }
+    }
+
+    pub(crate) fn delete_selection(&mut self) {
+        let to_delete = std::mem::replace(self.selection_mut(), BTreeSet::new());
+        for sel in to_delete.iter() {
+            if let Some(path) = self.paths_mut().iter_mut().find(|p| *p == sel) {
+                path.delete_point(*sel);
+            }
+        }
+        self.paths_mut().retain(|p| !p.points().is_empty());
+    }
+
+    pub(crate) fn select_all(&mut self) {
+        *self.selection_mut() = self.iter_points().map(|p| p.id).collect();
+    }
+
+    pub(crate) fn select_next(&mut self) {
+        if self.selection.len() != 1 {
+            return;
+        }
+        let id = self.selection.iter().next().copied().unwrap();
+        self.selection_mut().clear();
+        let id = self
+            .paths
+            .iter()
+            .find(|p| **p == id)
+            .map(|path| path.next_point(id))
+            .unwrap_or(id);
+        self.selection_mut().insert(id);
+    }
+
+    pub(crate) fn select_prev(&mut self) {
+        if self.selection.len() != 1 {
+            return;
+        }
+        let id = self.selection.iter().next().copied().unwrap();
+        self.selection_mut().clear();
+        let id = self
+            .paths
+            .iter()
+            .find(|p| **p == id)
+            .map(|path| path.prev_point(id))
+            .unwrap_or(id);
+        self.selection_mut().insert(id);
     }
 
     pub(crate) fn update_for_drag(&mut self, _start: Point, end: Point) {
@@ -278,7 +317,7 @@ impl Widget<CanvasState> for Canvas {
         // first check for top-level commands
         match event {
             Event::KeyUp(key) if key.key_code == KeyCode::Escape => {
-                data.remove_top_path();
+                data.contents.selection_mut().clear();
                 ctx.set_handled();
             }
             Event::KeyUp(key) if data.toolbar.idx_for_key(key).is_some() => {
@@ -293,7 +332,7 @@ impl Widget<CanvasState> for Canvas {
 
         // then pass the event to the active tool
         let CanvasState { tool, contents, .. } = data;
-        if ctx.is_handled() | tool.event(contents, event) {
+        if ctx.is_handled() || tool.event(contents, event) {
             ctx.invalidate();
         }
 

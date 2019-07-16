@@ -118,7 +118,19 @@ impl Select {
                 true
             }
             e if e.key_code == Backspace => {
-                self.delete_selection(canvas);
+                canvas.delete_selection();
+                true
+            }
+            e if e.text() == Some("a") && e.mods.meta && !e.mods.shift => {
+                canvas.select_all();
+                true
+            }
+            e if e.key_code == Tab => {
+                if e.mods.shift {
+                    canvas.select_prev();
+                } else {
+                    canvas.select_next();
+                }
                 true
             }
             _ => false,
@@ -165,8 +177,6 @@ impl Select {
         }
         canvas.nudge_selection(nudge);
     }
-
-    fn delete_selection(&mut self, _canvas: &mut Contents) {}
 }
 
 impl Tool for Select {
