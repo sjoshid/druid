@@ -131,6 +131,7 @@ impl<'a> Iterator for PathSelectionIter<'a> {
         let end_idx = self.inner[self.idx..]
             .iter()
             .position(|p| p.path != path_id)
+            .map(|idx| idx + self.idx)
             .unwrap_or(self.inner.len());
         let range = self.idx..end_idx;
         self.idx = end_idx;
@@ -238,7 +239,7 @@ impl Contents {
             .paths
             .iter()
             .find(|p| **p == id)
-            .map(|path| path.next_point(id))
+            .map(|path| path.next_point(id).id)
             .unwrap_or(id);
         self.selection_mut().insert(id);
     }
@@ -253,7 +254,7 @@ impl Contents {
             .paths
             .iter()
             .find(|p| **p == id)
-            .map(|path| path.prev_point(id))
+            .map(|path| path.prev_point(id).id)
             .unwrap_or(id);
         self.selection_mut().insert(id);
     }

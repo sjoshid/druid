@@ -94,7 +94,6 @@ impl Pen {
         }
 
         if let Some(path) = canvas.active_path_mut() {
-            let len = path.points().len();
             if path.is_closed() || path.points().len() > 1 && !path.last_segment_is_curve() {
                 path.clear_trailing();
             }

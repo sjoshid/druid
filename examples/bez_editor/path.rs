@@ -371,26 +371,22 @@ impl Path {
         (idx + 1) % self.points.len()
     }
 
-    pub(crate) fn prev_point(&self, point: PointId) -> PointId {
-        assert!(point.path == self.id);
-        let idx = self
-            .points
-            .iter()
-            .position(|p| p.id == point)
-            .expect("bad input to prev_point");
-        let idx = self.prev_idx(idx);
-        self.points[idx].id
+    fn idx_for_point(&self, point: PointId) -> Option<usize> {
+        self.points.iter().position(|p| p.id == point)
     }
 
-    pub(crate) fn next_point(&self, point: PointId) -> PointId {
+    pub(crate) fn prev_point(&self, point: PointId) -> PathPoint {
         assert!(point.path == self.id);
-        let idx = self
-            .points
-            .iter()
-            .position(|p| p.id == point)
-            .expect("bad input to next_point");
+        let idx = self.idx_for_point(point).expect("bad input to prev_point");
+        let idx = self.prev_idx(idx);
+        self.points[idx]
+    }
+
+    pub(crate) fn next_point(&self, point: PointId) -> PathPoint {
+        assert!(point.path == self.id);
+        let idx = self.idx_for_point(point).expect("bad input to next_point");
         let idx = self.next_idx(idx);
-        self.points[idx].id
+        self.points[idx]
     }
 }
 
