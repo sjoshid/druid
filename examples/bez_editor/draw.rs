@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use super::path::{Path, PointId, PointType};
 use super::Tool;
-use druid::kurbo::{BezPath, Circle, CubicBez, Line, PathSeg, Point, QuadBez, Rect, Vec2};
+use druid::kurbo::{Affine, BezPath, Circle, CubicBez, Line, PathSeg, Point, QuadBez, Rect, Vec2};
 use druid::piet::{Color, FillRule::NonZero, RenderContext};
 use druid::PaintCtx;
 
@@ -14,6 +14,7 @@ const SELECTION_RECT_STROKE_COLOR: Color = Color::rgb24(0x53_8B_BB);
 const ON_CURVE_POINT_COLOR: Color = Color::rgb24(0x0b_2b_db);
 const OFF_CURVE_POINT_COLOR: Color = Color::rgb24(0xbb_bb_bb);
 const OFF_CURVE_HANDLE_COLOR: Color = Color::rgb24(0xbb_bb_bb);
+const DIRECTION_ARROW_COLOR: Color = Color::rgba32(0x00_00_00_44);
 
 const ON_CURVE_RADIUS: f64 = 3.5;
 const ON_CURVE_SELECTED_RADIUS: f64 = 4.;
@@ -21,6 +22,11 @@ const OFF_CURVE_RADIUS: f64 = 2.;
 const OFF_CURVE_SELECTED_RADIUS: f64 = 2.5;
 
 trait PaintHelpers: RenderContext {
+    fn draw_path(&mut self, bez: &BezPath) {
+        let path_brush = self.solid_brush(PATH_COLOR);
+        self.stroke(bez, &path_brush, 1.0, None);
+    }
+
     fn draw_control_handle(&mut self, p1: Point, p2: Point) {
         let brush = self.solid_brush(OFF_CURVE_HANDLE_COLOR);
         let l = Line::new(p1, p2);
@@ -48,7 +54,7 @@ trait PaintHelpers: RenderContext {
         if selected {
             self.stroke(cap, &brush, 3.0, None);
         } else {
-            self.stroke(cap, &brush, 1.0, None);
+            self.stroke(cap, &brush, 2.0, None);
         }
     }
 
@@ -87,6 +93,24 @@ trait PaintHelpers: RenderContext {
         let stroke_brush = self.solid_brush(SELECTION_RECT_STROKE_COLOR);
         self.fill(rect, &bg_brush, NonZero);
         self.stroke(rect, &stroke_brush, 1.0, None);
+    }
+
+    fn draw_direction_indicator(&mut self, path: &BezPath) {
+        let (p0, p1, p2, p3) = match path.segments().next() {
+            None => return,
+            Some(seg) => cubic_points_for_seg(&seg),
+        };
+
+        let mut arrow = make_arrow();
+        let tangent = tangent_vector(0.05, p0, p1, p2, p3);
+        let tangent = tangent / tangent.hypot(); // normalized
+        let angle = Vec2::new(tangent.y, -tangent.x);
+        let rotate = Affine::rotate(angle.atan2());
+        let translate = Affine::translate(p0.to_vec2() + tangent * 4.0);
+        arrow.apply_affine(rotate);
+        arrow.apply_affine(translate);
+        let brush = self.solid_brush(DIRECTION_ARROW_COLOR);
+        self.fill(arrow, &brush, NonZero);
     }
 }
 
@@ -172,12 +196,6 @@ impl<'a> std::iter::Iterator for PointIter<'a> {
     }
 }
 
-pub(crate) fn draw_inactive_path(path: &Path, paint_ctx: &mut PaintCtx) {
-    let path_brush = paint_ctx.render_ctx.solid_brush(PATH_COLOR);
-    let bez = path.to_bezier();
-    paint_ctx.render_ctx.stroke(bez, &path_brush, 1.0, None);
-}
-
 fn draw_control_point_lines(path: &Path, paint_ctx: &mut PaintCtx) {
     let mut prev_point = path.start_point().point;
     let mut idx = 0;
@@ -214,8 +232,10 @@ pub(crate) fn draw_paths(
     ctx: &mut PaintCtx,
 ) {
     for path in paths {
-        draw_inactive_path(path, ctx);
+        let bez = path.to_bezier();
+        ctx.render_ctx.draw_path(&bez);
         draw_control_point_lines(path, ctx);
+        ctx.render_ctx.draw_direction_indicator(&bez);
 
         let bez = path.to_bezier();
         for point in PointIter::new(path, &bez, sels) {
@@ -234,15 +254,20 @@ pub(crate) fn draw_paths(
     }
 }
 
+/// Return the tangent of the cubic bezier described by `(p0, p1, p2, p3)`
+/// at time `t` as a vector relative to `p0`.
+fn tangent_vector(t: f64, p0: Point, p1: Point, p2: Point, p3: Point) -> Vec2 {
+    debug_assert!(t >= 0.0 && t <= 1.0);
+    let one_minus_t = 1.0 - t;
+    3.0 * one_minus_t.powi(2) * (p1 - p0)
+        + 6.0 * t * one_minus_t * (p2 - p1)
+        + 3.0 * t.powi(2) * (p3 - p2)
+}
+
 /// Create a line of length `len` perpendicular to the tangent of the cubic
 /// bezier described by `(p0, p1, p2, p3)`, centered on `p0`.
 fn cap_line(p0: Point, p1: Point, p2: Point, p3: Point, len: f64) -> Line {
-    let t: f64 = 0.01;
-    let one_minus_t = 1.0 - t;
-    let tan_vec = 3.0 * one_minus_t.powi(2) * (p1 - p0)
-        + 6.0 * t * one_minus_t * (p2 - p1)
-        + 3.0 * t.powi(2) * (p3 - p2);
-
+    let tan_vec = tangent_vector(0.01, p0, p1, p2, p3);
     let end = p0 + tan_vec;
     perp(p0, end, len)
 }
@@ -274,4 +299,22 @@ fn cubic_points_for_seg(seg: &PathSeg) -> (Point, Point, Point, Point) {
             (c.p0, c.p1, c.p2, c.p3)
         }
     }
+}
+
+fn make_arrow() -> BezPath {
+    let mut bez = BezPath::new();
+    //bez.move_to((-5., 0.));
+    //bez.line_to((5., 0.));
+    //bez.line_to((5., 11.));
+    //bez.line_to((15., 11.));
+    //bez.line_to((0., 32.));
+    //bez.line_to((-15., 11.));
+    //bez.line_to((-5., 11.));
+    //bez.close_path();
+
+    bez.move_to((0., 18.));
+    bez.line_to((-12., 0.));
+    bez.line_to((12., 0.));
+    bez.close_path();
+    bez
 }
