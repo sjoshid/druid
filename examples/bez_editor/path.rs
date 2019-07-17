@@ -1,5 +1,5 @@
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use druid::kurbo::{BezPath, Point, Vec2};
 use druid::Data;
@@ -46,9 +46,11 @@ pub struct PathPoint {
 #[derive(Debug, Clone)]
 pub struct Path {
     id: usize,
-    points: Arc<Vec<PathPoint>>,
+    points: std::sync::Arc<Vec<PathPoint>>,
     trailing: Option<Point>,
     closed: bool,
+    bezier: RefCell<BezPath>,
+    bezier_stale: Cell<bool>,
 }
 
 impl PointType {
@@ -97,9 +99,11 @@ impl Path {
 
         Path {
             id,
-            points: Arc::new(vec![start]),
+            points: std::sync::Arc::new(vec![start]),
             closed: false,
             trailing: None,
+            bezier: RefCell::new(BezPath::new()),
+            bezier_stale: Cell::new(false),
         }
     }
 
@@ -112,7 +116,8 @@ impl Path {
     }
 
     fn points_mut(&mut self) -> &mut Vec<PathPoint> {
-        Arc::make_mut(&mut self.points)
+        self.bezier_stale.set(true);
+        std::sync::Arc::make_mut(&mut self.points)
     }
 
     pub fn trailing(&self) -> Option<&Point> {
@@ -139,7 +144,14 @@ impl Path {
         }
     }
 
-    pub fn to_bezier(&self) -> BezPath {
+    pub fn bezier(&self) -> std::cell::Ref<BezPath> {
+        if self.bezier_stale.replace(false) {
+            *self.bezier.borrow_mut() = self.make_bezier();
+        }
+        self.bezier.borrow()
+    }
+
+    fn make_bezier(&self) -> BezPath {
         let mut bez = BezPath::new();
         bez.move_to(self.start_point().point);
         let mut i = if self.closed { 0 } else { 1 };
@@ -174,7 +186,7 @@ impl Path {
             return self.close();
         }
         let new = PathPoint::on_curve(self.id, point);
-        Arc::make_mut(&mut self.points).push(new);
+        self.points_mut().push(new);
         new.id
     }
 
@@ -211,7 +223,7 @@ impl Path {
     }
 
     fn nudge_point(&mut self, idx: usize, v: Vec2) {
-        Arc::make_mut(&mut self.points)[idx].point += v;
+        self.points_mut()[idx].point += v;
     }
 
     /// Returns the index for the on_curve point and the 'other' handle
@@ -245,7 +257,7 @@ impl Path {
             .abs();
         let new_pos = self.points[on_curve].point + new_angle * handle_len;
         dbg!(new_angle, handle_len, new_pos);
-        Arc::make_mut(&mut self.points)[bcp2].point = new_pos;
+        self.points_mut()[bcp2].point = new_pos;
     }
 
     fn debug_print_points(&self) {
@@ -354,9 +366,11 @@ impl Path {
 
     pub fn toggle_on_curve_point_type(&mut self, id: PointId) {
         let idx = self.idx_for_point(id).unwrap();
+        let has_ctrl = !self.points[self.prev_idx(idx)].is_on_curve()
+            || !self.points[self.next_idx(idx)].is_on_curve();
         let point = &mut self.points_mut()[idx];
         point.typ = match point.typ {
-            PointType::OnCurve => PointType::OnCurveSmooth,
+            PointType::OnCurve if has_ctrl => PointType::OnCurveSmooth,
             PointType::OnCurveSmooth => PointType::OnCurve,
             other => other,
         }
@@ -378,7 +392,7 @@ impl Path {
                 PathPoint::off_curve(self.id, p2),
                 prev,
             ];
-            Arc::make_mut(&mut self.points).extend(pts);
+            self.points_mut().extend(pts);
         }
         self.trailing = Some(handle);
     }
@@ -390,7 +404,7 @@ impl Path {
             assert!(self.points[len - 1].typ != PointType::OffCurve);
             assert!(self.points[len - 2].typ == PointType::OffCurve);
             let on_curve_pt = self.points[len - 1].point;
-            Arc::make_mut(&mut self.points)[len - 2].point = on_curve_pt - (handle - on_curve_pt);
+            self.points_mut()[len - 2].point = on_curve_pt - (handle - on_curve_pt);
         }
         self.trailing = Some(handle);
     }
@@ -399,7 +413,7 @@ impl Path {
     // 'closing' the path means moving this path to the end of the list.
     fn close(&mut self) -> PointId {
         assert!(!self.closed);
-        Arc::make_mut(&mut self.points).rotate_left(1);
+        self.points_mut().rotate_left(1);
         self.closed = true;
         self.points.last().unwrap().id
     }

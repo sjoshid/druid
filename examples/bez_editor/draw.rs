@@ -249,12 +249,11 @@ pub(crate) fn draw_paths(
     ctx: &mut PaintCtx,
 ) {
     for path in paths {
-        let bez = path.to_bezier();
+        let bez = path.bezier();
         ctx.render_ctx.draw_path(&bez);
         draw_control_point_lines(path, ctx);
         ctx.render_ctx.draw_direction_indicator(&bez);
 
-        let bez = path.to_bezier();
         for point in PointIter::new(path, &bez, sels) {
             ctx.render_ctx.draw_point(point)
         }

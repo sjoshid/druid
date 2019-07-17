@@ -115,6 +115,8 @@ impl Select {
         {
             canvas.toggle_selected_on_curve_type();
             true
+        } else if canvas.select_path(event.pos, event.mods.shift) {
+            true
         } else {
             false
         }

@@ -259,6 +259,24 @@ impl Contents {
         self.selection_mut().insert(id);
     }
 
+    pub(crate) fn select_path(&mut self, point: Point, toggle: bool) -> bool {
+        let path_idx = match self.paths.iter().position(|p| {
+            let (_, x, y) = p.bezier().nearest(point, 0.1);
+            Point::new(x, y).to_vec2().hypot() < MIN_POINT_DISTANCE
+        }) {
+            Some(idx) => idx,
+            None => return false,
+        };
+
+        let points: Vec<_> = self.paths[path_idx].points().to_owned();
+        for point in points {
+            if !self.selection_mut().insert(point.id) && toggle {
+                self.selection_mut().remove(&point.id);
+            }
+        }
+        true
+    }
+
     pub(crate) fn update_for_drag(&mut self, drag_point: Point) {
         self.active_path_mut().unwrap().update_for_drag(drag_point);
     }
