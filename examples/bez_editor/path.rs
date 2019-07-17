@@ -320,7 +320,8 @@ impl Path {
     fn convert_last_to_curve(&mut self, handle: Point) {
         assert!(!self.points.is_empty());
         if self.points.len() > 1 {
-            let prev = self.points_mut().pop().unwrap();
+            let mut prev = self.points_mut().pop().unwrap();
+            prev.typ = PointType::OnCurveSmooth;
             let p1 = self
                 .trailing
                 .take()

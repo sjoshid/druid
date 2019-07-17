@@ -11,13 +11,14 @@ use druid::PaintCtx;
 const PATH_COLOR: Color = Color::rgb24(0x00_00_00);
 const SELECTION_RECT_BG_COLOR: Color = Color::rgba32(0xDD_DD_DD_55);
 const SELECTION_RECT_STROKE_COLOR: Color = Color::rgb24(0x53_8B_BB);
-const ON_CURVE_POINT_COLOR: Color = Color::rgb24(0x0b_2b_db);
+const SMOOTH_POINT_COLOR: Color = Color::rgb24(0x_41_8E_22);
+const CORNER_POINT_COLOR: Color = Color::rgb24(0x0b_2b_db);
 const OFF_CURVE_POINT_COLOR: Color = Color::rgb24(0xbb_bb_bb);
 const OFF_CURVE_HANDLE_COLOR: Color = Color::rgb24(0xbb_bb_bb);
 const DIRECTION_ARROW_COLOR: Color = Color::rgba32(0x00_00_00_44);
 
-const ON_CURVE_RADIUS: f64 = 3.5;
-const ON_CURVE_SELECTED_RADIUS: f64 = 4.;
+const SMOOTH_RADIUS: f64 = 3.5;
+const SMOOTH_SELECTED_RADIUS: f64 = 4.;
 const OFF_CURVE_RADIUS: f64 = 2.;
 const OFF_CURVE_SELECTED_RADIUS: f64 = 2.5;
 
@@ -43,7 +44,9 @@ trait PaintHelpers: RenderContext {
             Style::Open(seg) => self.draw_open_path_terminal(&seg, selected),
             Style::Close(seg) => self.draw_open_path_terminal(&seg, selected),
             Style::OffCurve => self.draw_off_curve_point(point, selected),
-            _ => self.draw_on_curve_point(point, selected),
+            Style::Smooth => self.draw_smooth_point(point, selected),
+            Style::Tangent => self.draw_smooth_point(point, selected),
+            Style::Corner => self.draw_corner_point(point, selected),
         }
     }
 
@@ -58,18 +61,33 @@ trait PaintHelpers: RenderContext {
         }
     }
 
-    fn draw_on_curve_point(&mut self, p: Point, selected: bool) {
+    fn draw_smooth_point(&mut self, p: Point, selected: bool) {
         let radius = if selected {
-            ON_CURVE_SELECTED_RADIUS
+            SMOOTH_SELECTED_RADIUS
         } else {
-            ON_CURVE_RADIUS
+            SMOOTH_RADIUS
         };
-        let brush = self.solid_brush(ON_CURVE_POINT_COLOR);
+        let brush = self.solid_brush(SMOOTH_POINT_COLOR);
         let circ = Circle::new(p, radius);
         if selected {
             self.fill(circ, &brush, NonZero);
         } else {
             self.stroke(circ, &brush, 1.0, None);
+        }
+    }
+
+    fn draw_corner_point(&mut self, p: Point, selected: bool) {
+        let radius = if selected {
+            SMOOTH_SELECTED_RADIUS
+        } else {
+            SMOOTH_RADIUS
+        };
+        let brush = self.solid_brush(CORNER_POINT_COLOR);
+        let rect = Rect::new(p.x - radius, p.y - radius, p.x + radius, p.y + radius);
+        if selected {
+            self.fill(rect, &brush, NonZero);
+        } else {
+            self.stroke(rect, &brush, 1.0, None);
         }
     }
 
@@ -154,8 +172,8 @@ impl<'a> PointIter<'a> {
             return Style::Corner;
         }
 
-        let next = self.path.points()[self.idx];
-        if next.is_on_curve() && !self.path.is_closed() {
+        let this = self.path.points()[self.idx];
+        if this.is_on_curve() && !self.path.is_closed() {
             if self.idx == 0 {
                 return Style::Open(self.bez.segments().next().unwrap());
             } else if self.idx == len - 1 {
@@ -163,17 +181,16 @@ impl<'a> PointIter<'a> {
             }
         }
 
-        match next.typ {
+        match this.typ {
             PointType::OnCurve => Style::Corner,
             PointType::OffCurve => Style::OffCurve,
             PointType::OnCurveSmooth => {
-                let prev = self.path.prev_point(next.id);
-                let next = self.path.next_point(next.id);
+                let prev = self.path.prev_point(this.id);
+                let next = self.path.next_point(this.id);
                 match (prev.is_on_curve(), next.is_on_curve()) {
                     (false, false) => Style::Smooth,
-                    (true, false) => Style::Tangent,
-                    (false, true) => Style::Tangent,
-                    (true, true) => Style::Corner,
+                    (true, false) | (false, true) => Style::Tangent,
+                    _ => unreachable!(),
                 }
             }
         }
