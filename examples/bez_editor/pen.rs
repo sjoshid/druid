@@ -3,7 +3,7 @@
 use druid::kurbo::Point;
 use druid::{Event, MouseButton, MouseEvent};
 
-use super::{Contents, Mouse, Path, Tool, MIN_POINT_DISTANCE};
+use super::{Contents, Mouse, Tool, MIN_POINT_DISTANCE};
 
 /// The state of the pen.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,8 +39,15 @@ impl Pen {
             return false;
         }
 
-        let point = match canvas.active_path().map(Path::start_point) {
-            Some(start) if start.point.distance(event.pos) < MIN_POINT_DISTANCE => start.point,
+        let point = match canvas.active_path() {
+            Some(path) if path.start_point().point.distance(event.pos) < MIN_POINT_DISTANCE => {
+                path.start_point().point
+            }
+            // lock to nearest vertical or horizontal axis if shift is pressed
+            Some(path) if event.mods.shift => {
+                let last_point = path.points().last().unwrap().point;
+                axis_locked_point(event.pos, last_point)
+            }
             _ => event.pos,
         };
 
@@ -81,7 +88,12 @@ impl Pen {
             }
         };
         if let Mouse::Drag { start, current, .. } = self.0 {
-            canvas.update_for_drag(start, current);
+            let handle_point = if event.mods.shift {
+                axis_locked_point(current, start)
+            } else {
+                current
+            };
+            canvas.update_for_drag(handle_point);
             true
         } else {
             false
@@ -109,5 +121,16 @@ impl Pen {
 
         self.0 = Mouse::Up(event.pos);
         true
+    }
+}
+
+/// Lock the smallest axis of `point` (from `prev`) to that axis on `prev`.
+/// (aka shift + click)
+fn axis_locked_point(point: Point, prev: Point) -> Point {
+    let dxy = prev - point;
+    if dxy.x.abs() > dxy.y.abs() {
+        Point::new(point.x, prev.y)
+    } else {
+        Point::new(prev.x, point.y)
     }
 }

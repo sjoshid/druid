@@ -259,8 +259,8 @@ impl Contents {
         self.selection_mut().insert(id);
     }
 
-    pub(crate) fn update_for_drag(&mut self, _start: Point, end: Point) {
-        self.active_path_mut().unwrap().update_for_drag(end);
+    pub(crate) fn update_for_drag(&mut self, drag_point: Point) {
+        self.active_path_mut().unwrap().update_for_drag(drag_point);
     }
 
     pub(crate) fn iter_points(&self) -> impl Iterator<Item = &PathPoint> {
