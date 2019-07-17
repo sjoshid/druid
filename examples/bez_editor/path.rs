@@ -181,35 +181,71 @@ impl Path {
     pub fn nudge_points(&mut self, points: &[PointId], v: Vec2) {
         let mut to_nudge = HashSet::new();
         for point in points {
-            to_nudge.insert(*point);
             let idx = match self.points.iter().position(|p| p.id == *point) {
                 Some(idx) => idx,
                 None => continue,
             };
+            to_nudge.insert(idx);
             if self.points[idx].is_on_curve() {
                 let prev = self.prev_idx(idx);
                 let next = self.next_idx(idx);
                 if !self.points[prev].is_on_curve() {
-                    to_nudge.insert(self.points[prev].id);
+                    to_nudge.insert(prev);
                 }
                 if !self.points[next].is_on_curve() {
-                    to_nudge.insert(self.points[next].id);
+                    to_nudge.insert(next);
                 }
             }
         }
 
-        for point in to_nudge {
-            self.nudge_point(point, v);
+        for idx in &to_nudge {
+            self.nudge_point(*idx, v);
+            if !self.points[*idx].is_on_curve() {
+                if let Some((on_curve, handle)) = self.tangent_handle(*idx) {
+                    if !to_nudge.contains(&handle) {
+                        self.adjust_handle_angle(*idx, on_curve, handle);
+                    }
+                }
+            }
         }
     }
 
-    fn nudge_point(&mut self, point_id: PointId, v: Vec2) {
-        if let Some(p) = Arc::make_mut(&mut self.points)
-            .iter_mut()
-            .find(|p| p.id == point_id)
-        {
-            p.point += v;
+    fn nudge_point(&mut self, idx: usize, v: Vec2) {
+        Arc::make_mut(&mut self.points)[idx].point += v;
+    }
+
+    /// Returns the index for the on_curve point and the 'other' handle
+    /// for an offcurve point, if it exists.
+    fn tangent_handle(&self, idx: usize) -> Option<(usize, usize)> {
+        assert!(!self.points[idx].is_on_curve());
+        let prev = self.prev_idx(idx);
+        let next = self.next_idx(idx);
+        if self.points[prev].typ == PointType::OnCurveSmooth {
+            let prev2 = self.prev_idx(prev);
+            if !self.points[prev2].is_on_curve() {
+                return Some((prev, prev2));
+            }
+        } else if self.points[next].typ == PointType::OnCurveSmooth {
+            let next2 = self.next_idx(next);
+            if !self.points[next2].is_on_curve() {
+                return Some((next, next2));
+            }
         }
+        None
+    }
+
+    /// Update a tangent handle in response to the movement of the partner handle.
+    /// `bcp1` is the handle that has moved, and `bcp2` is the handle that needs
+    /// to be adjusted.
+    fn adjust_handle_angle(&mut self, bcp1: usize, on_curve: usize, bcp2: usize) {
+        let new_angle = (self.points[bcp1].point - self.points[on_curve].point) * -1.0;
+        let new_angle = new_angle / new_angle.hypot(); // unit vector
+        let handle_len = (self.points[bcp2].point - self.points[on_curve].point)
+            .hypot()
+            .abs();
+        let new_pos = self.points[on_curve].point + new_angle * handle_len;
+        dbg!(new_angle, handle_len, new_pos);
+        Arc::make_mut(&mut self.points)[bcp2].point = new_pos;
     }
 
     fn debug_print_points(&self) {
