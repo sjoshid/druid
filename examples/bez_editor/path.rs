@@ -352,6 +352,16 @@ impl Path {
         len > 2 && !self.points[len - 2].is_on_curve()
     }
 
+    pub fn toggle_on_curve_point_type(&mut self, id: PointId) {
+        let idx = self.idx_for_point(id).unwrap();
+        let point = &mut self.points_mut()[idx];
+        point.typ = match point.typ {
+            PointType::OnCurve => PointType::OnCurveSmooth,
+            PointType::OnCurveSmooth => PointType::OnCurve,
+            other => other,
+        }
+    }
+
     /// If the user drags after mousedown, we convert the last point to a curve.
     fn convert_last_to_curve(&mut self, handle: Point) {
         assert!(!self.points.is_empty());

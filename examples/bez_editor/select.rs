@@ -106,6 +106,20 @@ impl Select {
         }
     }
 
+    fn double_click(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
+        if canvas
+            .iter_points()
+            .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
+            .map(|p| p.is_on_curve())
+            .unwrap_or(false)
+        {
+            canvas.toggle_selected_on_curve_type();
+            true
+        } else {
+            false
+        }
+    }
+
     fn key_down(&mut self, canvas: &mut Contents, event: &KeyEvent) -> bool {
         use KeyCode::*;
         match event {
@@ -189,7 +203,7 @@ impl Tool for Select {
             Event::MouseMoved(mouse) => self.mouse_moved(data, mouse),
             Event::MouseUp(mouse) => self.mouse_up(data, mouse),
             Event::KeyDown(key) => self.key_down(data, key),
-            //Event::MouseDown(mouse) if mouse.count == 2 => self.double_click(data, mouse),
+            Event::MouseDown(mouse) if mouse.count == 2 => self.double_click(data, mouse),
             _ => false,
         }
     }

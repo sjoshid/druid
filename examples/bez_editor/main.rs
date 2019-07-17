@@ -266,6 +266,15 @@ impl Contents {
     pub(crate) fn iter_points(&self) -> impl Iterator<Item = &PathPoint> {
         self.paths.iter().flat_map(|p| p.points().iter())
     }
+
+    /// If there is a single on curve point selected, toggle it between corner and smooth
+    pub(crate) fn toggle_selected_on_curve_type(&mut self) {
+        if self.selection.len() == 1 {
+            let point = self.selection.iter().copied().next().unwrap();
+            let path = self.active_path_mut().unwrap();
+            path.toggle_on_curve_point_type(point);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -287,7 +296,7 @@ pub(crate) trait Tool: Debug + Any {
     fn event(&mut self, data: &mut Contents, event: &Event) -> bool;
 
     /// The current rectangular selection, if this is the selection tool, and
-    /// whether or not the shift key is down.
+    /// whether or not the shift key is downpick 5ca86ff fixup corner point drawing.
     fn selection_rect(&self) -> Option<Rect> {
         None
     }
