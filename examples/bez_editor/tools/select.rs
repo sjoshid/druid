@@ -6,12 +6,13 @@ use std::sync::Arc;
 use druid::kurbo::{Point, Rect, Vec2};
 use druid::{Event, KeyCode, KeyEvent, MouseEvent};
 
-use super::path::PointId;
-use super::{Contents, Mouse, Tool, MIN_POINT_DISTANCE};
+use super::{Mouse, Tool};
+use crate::path::PointId;
+use crate::{Contents, MIN_POINT_DISTANCE};
 
 /// The state of the selection tool.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Select {
+pub struct Select {
     mouse: Mouse,
     /// when a drag is in progress, this is the state of the selection at the start of the drag.
     prev_selection: Option<Arc<BTreeSet<PointId>>>,

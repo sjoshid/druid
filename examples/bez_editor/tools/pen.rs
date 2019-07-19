@@ -3,11 +3,12 @@
 use druid::kurbo::Point;
 use druid::{Event, MouseButton, MouseEvent};
 
-use super::{Contents, Mouse, Tool, MIN_POINT_DISTANCE};
+use super::{Mouse, Tool};
+use crate::{Contents, MIN_POINT_DISTANCE};
 
 /// The state of the pen.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Pen(Mouse);
+pub struct Pen(Mouse);
 
 impl Tool for Pen {
     fn event(&mut self, data: &mut Contents, event: &Event) -> bool {
