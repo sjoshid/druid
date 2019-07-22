@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use super::path::{Path, PointId, PointType};
 use super::Tool;
-use druid::kurbo::{Affine, BezPath, Circle, CubicBez, Line, PathSeg, Point, QuadBez, Rect, Vec2};
+use druid::kurbo::{Affine, BezPath, Circle, CubicBez, Line, PathSeg, Point, Rect, Vec2};
 use druid::piet::{Color, FillRule::NonZero, RenderContext};
 use druid::PaintCtx;
 
@@ -51,8 +51,7 @@ trait PaintHelpers: RenderContext {
     }
 
     fn draw_open_path_terminal(&mut self, seg: &PathSeg, selected: bool) {
-        let (p0, p1, p2, p3) = cubic_points_for_seg(seg);
-        let cap = cap_line(p0, p1, p2, p3, 12.);
+        let cap = cap_line(seg.to_cubic(), 12.);
         let brush = self.solid_brush(OFF_CURVE_HANDLE_COLOR);
         if selected {
             self.stroke(cap, &brush, 3.0, None);
@@ -114,17 +113,16 @@ trait PaintHelpers: RenderContext {
     }
 
     fn draw_direction_indicator(&mut self, path: &BezPath) {
-        let (p0, p1, p2, p3) = match path.segments().next() {
+        let first_seg = match path.segments().next().as_ref().map(PathSeg::to_cubic) {
             None => return,
-            Some(seg) => cubic_points_for_seg(&seg),
+            Some(cubic) => cubic,
         };
 
-        let mut arrow = make_arrow();
-        let tangent = tangent_vector(0.05, p0, p1, p2, p3);
-        let tangent = tangent / tangent.hypot(); // normalized
+        let tangent = tangent_vector(0.05, first_seg).normalize();
         let angle = Vec2::new(tangent.y, -tangent.x);
         let rotate = Affine::rotate(angle.atan2());
-        let translate = Affine::translate(p0.to_vec2() + tangent * 4.0);
+        let translate = Affine::translate(first_seg.p0.to_vec2() + tangent * 4.0);
+        let mut arrow = make_arrow();
         arrow.apply_affine(rotate);
         arrow.apply_affine(translate);
         let brush = self.solid_brush(DIRECTION_ARROW_COLOR);
@@ -177,7 +175,7 @@ impl<'a> PointIter<'a> {
             if self.idx == 0 {
                 return Style::Open(self.bez.segments().next().unwrap());
             } else if self.idx == len - 1 {
-                return Style::Close(reverse_seg(&self.bez.segments().last().unwrap()));
+                return Style::Close(self.bez.segments().last().unwrap().reverse());
             }
         }
 
@@ -270,10 +268,11 @@ pub(crate) fn draw_paths(
     }
 }
 
-/// Return the tangent of the cubic bezier described by `(p0, p1, p2, p3)`
-/// at time `t` as a vector relative to `p0`.
-fn tangent_vector(t: f64, p0: Point, p1: Point, p2: Point, p3: Point) -> Vec2 {
+/// Return the tangent of the cubic bezier `cb`, at time `t`, as a vector
+/// relative to the path's start point.
+fn tangent_vector(t: f64, cb: CubicBez) -> Vec2 {
     debug_assert!(t >= 0.0 && t <= 1.0);
+    let CubicBez { p0, p1, p2, p3 } = cb;
     let one_minus_t = 1.0 - t;
     3.0 * one_minus_t.powi(2) * (p1 - p0)
         + 6.0 * t * one_minus_t * (p2 - p1)
@@ -281,11 +280,11 @@ fn tangent_vector(t: f64, p0: Point, p1: Point, p2: Point, p3: Point) -> Vec2 {
 }
 
 /// Create a line of length `len` perpendicular to the tangent of the cubic
-/// bezier described by `(p0, p1, p2, p3)`, centered on `p0`.
-fn cap_line(p0: Point, p1: Point, p2: Point, p3: Point, len: f64) -> Line {
-    let tan_vec = tangent_vector(0.01, p0, p1, p2, p3);
-    let end = p0 + tan_vec;
-    perp(p0, end, len)
+/// bezier `cb`, centered on the bezier's start point.
+fn cap_line(cb: CubicBez, len: f64) -> Line {
+    let tan_vec = tangent_vector(0.01, cb);
+    let end = cb.p0 + tan_vec;
+    perp(cb.p0, end, len)
 }
 
 /// Create a line perpendicular to the line `(p1, p2)`, centered on `p1`.
@@ -295,26 +294,6 @@ fn perp(p0: Point, p1: Point, len: f64) -> Line {
     let p2 = p0 + (len * -0.5) * norm_perp;
     let p3 = p0 + (len * 0.5) * norm_perp;
     Line::new(p2, p3)
-}
-
-//FIXME: remove when this gets added to kurbo
-fn reverse_seg(seg: &PathSeg) -> PathSeg {
-    match seg {
-        PathSeg::Line(Line { p0, p1 }) => PathSeg::Line(Line::new(*p1, *p0)),
-        PathSeg::Cubic(c) => PathSeg::Cubic(CubicBez::new(c.p3, c.p2, c.p1, c.p0)),
-        PathSeg::Quad(q) => PathSeg::Quad(QuadBez::new(q.p2, q.p1, q.p0)),
-    }
-}
-
-fn cubic_points_for_seg(seg: &PathSeg) -> (Point, Point, Point, Point) {
-    match seg {
-        PathSeg::Line(l) => (l.p0, l.p0, l.p1, l.p1),
-        PathSeg::Cubic(c) => (c.p0, c.p1, c.p2, c.p3),
-        PathSeg::Quad(q) => {
-            let c = q.raise();
-            (c.p0, c.p1, c.p2, c.p3)
-        }
-    }
 }
 
 fn make_arrow() -> BezPath {
