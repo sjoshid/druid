@@ -7,7 +7,7 @@ use druid::kurbo::{Point, Rect, Vec2};
 use druid::{KeyCode, KeyEvent, MouseEvent};
 
 use super::{Drag, MouseDelegate, Tool};
-use crate::path::PointId;
+use crate::path::{DVec2, PointId};
 use crate::{Contents, MIN_POINT_DISTANCE};
 
 /// The state of the selection tool.
@@ -17,6 +17,7 @@ pub struct Select {
     /// of the drag.
     prev_selection: Option<Arc<BTreeSet<PointId>>>,
     drag_rect: Option<Rect>,
+    last_drag_pos: Option<Point>,
 }
 
 impl Select {
@@ -24,6 +25,7 @@ impl Select {
         Select {
             prev_selection: None,
             drag_rect: None,
+            last_drag_pos: None,
         }
     }
 
@@ -34,9 +36,10 @@ impl Select {
         rect: Rect,
         shift: bool,
     ) {
+        let vport = canvas.vport;
         let in_select_rect = canvas
             .iter_points()
-            .filter(|p| rect_contains(rect, p.point))
+            .filter(|p| rect_contains(rect, p.to_screen(vport)))
             .map(|p| p.id)
             .collect();
         let new_sel = if shift {
@@ -65,7 +68,7 @@ impl Select {
         } else if event.mods.shift {
             nudge *= 10.;
         }
-        canvas.nudge_selection(nudge);
+        canvas.nudge_selection(DVec2::from_raw(nudge));
     }
 }
 
@@ -74,7 +77,7 @@ impl MouseDelegate<Contents> for Select {
         if event.count == 1 {
             let sel = canvas
                 .iter_points()
-                .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
+                .find(|p| p.screen_dist(canvas.vport, event.pos) <= MIN_POINT_DISTANCE)
                 .map(|p| p.id);
             if let Some(point_id) = sel {
                 if !event.mods.shift {
@@ -93,7 +96,7 @@ impl MouseDelegate<Contents> for Select {
         } else if event.count == 2 {
             if canvas
                 .iter_points()
-                .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
+                .find(|p| p.screen_dist(canvas.vport, event.pos) <= MIN_POINT_DISTANCE)
                 .map(|p| p.is_on_curve())
                 .unwrap_or(false)
             {
@@ -114,7 +117,7 @@ impl MouseDelegate<Contents> for Select {
     fn left_drag_began(&mut self, canvas: &mut Contents, drag: Drag) -> bool {
         self.prev_selection = if canvas
             .iter_points()
-            .any(|p| p.point.distance(drag.start.pos) <= MIN_POINT_DISTANCE)
+            .any(|p| p.screen_dist(canvas.vport, drag.start.pos) <= MIN_POINT_DISTANCE)
         {
             None
         } else {
@@ -129,8 +132,24 @@ impl MouseDelegate<Contents> for Select {
             self.drag_rect = Some(rect);
             self.update_selection_for_drag(canvas, prev_selection, rect, drag.current.mods.shift);
         } else {
-            canvas.nudge_selection(drag.current.pos - drag.prev.pos);
+            let last_drag_pos = self.last_drag_pos.unwrap_or(drag.start.pos);
+            let dvec = drag.current.pos - last_drag_pos;
+            let drag_vec = dvec * (1.0 / canvas.vport.zoom);
+            let drag_vec = DVec2::from_raw((drag_vec.x.floor(), drag_vec.y.floor()));
+            if drag_vec.hypot() > 0. {
+                // multiple small drag updates that don't make up a single point in design
+                // space should be aggregated
+                let aligned_drag_delta = drag_vec.to_screen(canvas.vport);
+                let aligned_last_drag = last_drag_pos + aligned_drag_delta;
+                self.last_drag_pos = Some(aligned_last_drag);
+                canvas.nudge_selection(drag_vec);
+            }
         }
+        true
+    }
+
+    fn left_drag_ended(&mut self, _canvas: &mut Contents, _drag: Drag) -> bool {
+        self.last_drag_pos = None;
         true
     }
 

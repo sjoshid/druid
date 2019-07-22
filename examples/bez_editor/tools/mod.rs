@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::mem;
 
 use super::{Contents, MIN_POINT_DISTANCE};
-use druid::kurbo::Rect;
+use druid::kurbo::{Point, Rect};
 use druid::{Data, KeyEvent, MouseEvent};
 
 mod pen;
@@ -35,7 +35,6 @@ pub struct Mouse {
 
 impl Mouse {
     pub fn new() -> Mouse {
-        use druid::kurbo::Point;
         use druid::{KeyModifiers, MouseButton};
 
         Mouse {
@@ -47,8 +46,18 @@ impl Mouse {
             }),
         }
     }
+
+    pub fn pos(&self) -> Point {
+        match &self.state {
+            MouseState::Up(e) => e.pos,
+            MouseState::Down(e) => e.pos,
+            MouseState::Drag { current, .. } => current.pos,
+            _ => panic!("transition is not an actual state :/"),
+        }
+    }
 }
 
+#[allow(unused)]
 pub struct Drag<'a> {
     start: &'a MouseEvent,
     prev: &'a MouseEvent,
