@@ -4,153 +4,26 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use druid::kurbo::{Point, Rect, Vec2};
-use druid::{Event, KeyCode, KeyEvent, MouseEvent};
+use druid::{KeyCode, KeyEvent, MouseEvent};
 
-use super::{Mouse, Tool};
+use super::{Drag, MouseDelegate, Tool};
 use crate::path::PointId;
 use crate::{Contents, MIN_POINT_DISTANCE};
 
 /// The state of the selection tool.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Select {
-    mouse: Mouse,
-    /// when a drag is in progress, this is the state of the selection at the start of the drag.
+    /// when a drag is in progress, this is the state of the selection at the start
+    /// of the drag.
     prev_selection: Option<Arc<BTreeSet<PointId>>>,
+    drag_rect: Option<Rect>,
 }
 
 impl Select {
     pub fn new() -> Self {
         Select {
-            mouse: Mouse::Up(Point::ZERO),
             prev_selection: None,
-        }
-    }
-
-    fn mouse_down(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
-        let sel = canvas
-            .iter_points()
-            .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
-            .map(|p| p.id);
-        if let Some(point_id) = sel {
-            if !event.mods.shift {
-                // when clicking a point, if it is not selected we set it as the selection,
-                // otherwise we keep the selection intact for a drag.
-                if !canvas.selection.contains(&point_id) {
-                    canvas.selection_mut().clear();
-                    canvas.selection_mut().insert(point_id);
-                }
-            } else if !canvas.selection_mut().remove(&point_id) {
-                canvas.selection_mut().insert(point_id);
-            }
-        } else if !event.mods.shift {
-            canvas.selection_mut().clear();
-        }
-        self.mouse = Mouse::Down(event.pos);
-        true
-    }
-
-    fn mouse_up(&mut self, _canvas: &mut Contents, event: &MouseEvent) -> bool {
-        self.prev_selection = None;
-        self.mouse = Mouse::Up(event.pos);
-        true
-    }
-
-    //TODO: this is identical to the code for the Pen. maybe we want something
-    //more like a shared gesture tracking state machine thing?
-    fn mouse_moved(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
-        self.mouse = match self.mouse {
-            Mouse::Up(_) => Mouse::Up(event.pos),
-            Mouse::Drag { start, current, .. } => Mouse::Drag {
-                start,
-                last: current,
-                current: event.pos,
-            },
-            Mouse::Down(point) => {
-                // have we moved far enough to start a drag gesture?
-                if point.distance(event.pos) > MIN_POINT_DISTANCE {
-                    // was the original click on a point?
-                    let on_point = canvas
-                        .iter_points()
-                        .any(|p| p.point.distance(point) <= MIN_POINT_DISTANCE);
-                    self.prev_selection = if on_point {
-                        None
-                    } else {
-                        Some(canvas.selection.clone())
-                    };
-
-                    Mouse::Drag {
-                        start: point,
-                        last: point,
-                        current: event.pos,
-                    }
-                } else {
-                    Mouse::Down(point)
-                }
-            }
-        };
-
-        if let Mouse::Drag {
-            start,
-            current,
-            last,
-        } = self.mouse
-        {
-            if let Some(prev_selection) = self.prev_selection.as_ref() {
-                let rect = Rect::from_points(current, start);
-                self.update_selection_for_drag(canvas, prev_selection, rect, event.mods.shift);
-            } else {
-                canvas.nudge_selection(current - last);
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    fn double_click(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
-        if canvas
-            .iter_points()
-            .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
-            .map(|p| p.is_on_curve())
-            .unwrap_or(false)
-        {
-            canvas.toggle_selected_on_curve_type();
-            true
-        } else if canvas.select_path(event.pos, event.mods.shift) {
-            true
-        } else {
-            false
-        }
-    }
-
-    fn key_down(&mut self, canvas: &mut Contents, event: &KeyEvent) -> bool {
-        use KeyCode::*;
-        match event {
-            e if e.key_code == ArrowLeft
-                || e.key_code == ArrowDown
-                || e.key_code == ArrowUp
-                || e.key_code == ArrowRight =>
-            {
-                self.nudge(canvas, event);
-                true
-            }
-            e if e.key_code == Backspace => {
-                canvas.delete_selection();
-                true
-            }
-            e if e.text() == Some("a") && e.mods.meta && !e.mods.shift => {
-                canvas.select_all();
-                true
-            }
-            e if e.key_code == Tab => {
-                if e.mods.shift {
-                    canvas.select_prev();
-                } else {
-                    canvas.select_next();
-                }
-                true
-            }
-            _ => false,
+            drag_rect: None,
         }
     }
 
@@ -196,28 +69,113 @@ impl Select {
     }
 }
 
+impl MouseDelegate<Contents> for Select {
+    fn left_down(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
+        if event.count == 1 {
+            let sel = canvas
+                .iter_points()
+                .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
+                .map(|p| p.id);
+            if let Some(point_id) = sel {
+                if !event.mods.shift {
+                    // when clicking a point, if it is not selected we set it as the selection,
+                    // otherwise we keep the selection intact for a drag.
+                    if !canvas.selection.contains(&point_id) {
+                        canvas.selection_mut().clear();
+                        canvas.selection_mut().insert(point_id);
+                    }
+                } else if !canvas.selection_mut().remove(&point_id) {
+                    canvas.selection_mut().insert(point_id);
+                }
+            } else if !event.mods.shift {
+                canvas.selection_mut().clear();
+            }
+        } else if event.count == 2 {
+            if canvas
+                .iter_points()
+                .find(|p| p.point.distance(event.pos) <= MIN_POINT_DISTANCE)
+                .map(|p| p.is_on_curve())
+                .unwrap_or(false)
+            {
+                canvas.toggle_selected_on_curve_type();
+            } else {
+                canvas.select_path(event.pos, event.mods.shift);
+            }
+        }
+        true
+    }
+
+    fn left_up(&mut self, _canvas: &mut Contents, _event: &MouseEvent) -> bool {
+        self.prev_selection = None;
+        self.drag_rect = None;
+        true
+    }
+
+    fn left_drag_began(&mut self, canvas: &mut Contents, drag: Drag) -> bool {
+        self.prev_selection = if canvas
+            .iter_points()
+            .any(|p| p.point.distance(drag.start.pos) <= MIN_POINT_DISTANCE)
+        {
+            None
+        } else {
+            Some(canvas.selection.clone())
+        };
+        true
+    }
+
+    fn left_drag_changed(&mut self, canvas: &mut Contents, drag: Drag) -> bool {
+        if let Some(prev_selection) = self.prev_selection.as_ref() {
+            let rect = Rect::from_points(drag.current.pos, drag.start.pos);
+            self.drag_rect = Some(rect);
+            self.update_selection_for_drag(canvas, prev_selection, rect, drag.current.mods.shift);
+        } else {
+            canvas.nudge_selection(drag.current.pos - drag.prev.pos);
+        }
+        true
+    }
+
+    fn cancel(&mut self, canvas: &mut Contents) {
+        if let Some(prev) = self.prev_selection.take() {
+            canvas.selection = prev;
+        }
+        self.drag_rect = None;
+    }
+}
+
 impl Tool for Select {
-    fn event(&mut self, data: &mut Contents, event: &Event) -> bool {
+    fn key_down(&mut self, canvas: &mut Contents, event: &KeyEvent) -> bool {
+        use KeyCode::*;
         match event {
-            Event::MouseDown(mouse) if mouse.button.is_right() => false,
-            Event::MouseUp(mouse) if mouse.button.is_right() => false,
-            Event::MouseMoved(mouse) if mouse.button.is_right() => false,
-            Event::MouseDown(mouse) if mouse.count == 1 => self.mouse_down(data, mouse),
-            Event::MouseMoved(mouse) => self.mouse_moved(data, mouse),
-            Event::MouseUp(mouse) => self.mouse_up(data, mouse),
-            Event::KeyDown(key) => self.key_down(data, key),
-            Event::MouseDown(mouse) if mouse.count == 2 => self.double_click(data, mouse),
+            e if e.key_code == ArrowLeft
+                || e.key_code == ArrowDown
+                || e.key_code == ArrowUp
+                || e.key_code == ArrowRight =>
+            {
+                self.nudge(canvas, event);
+                true
+            }
+            e if e.key_code == Backspace => {
+                canvas.delete_selection();
+                true
+            }
+            e if e.text() == Some("a") && e.mods.meta && !e.mods.shift => {
+                canvas.select_all();
+                true
+            }
+            e if e.key_code == Tab => {
+                if e.mods.shift {
+                    canvas.select_prev();
+                } else {
+                    canvas.select_next();
+                }
+                true
+            }
             _ => false,
         }
     }
 
     fn selection_rect(&self) -> Option<Rect> {
-        match self.mouse {
-            Mouse::Drag { start, current, .. } if self.prev_selection.is_some() => {
-                Some(Rect::from_points(start, current))
-            }
-            _ => None,
-        }
+        self.drag_rect
     }
 
     fn boxed_clone(&self) -> Box<dyn Tool> {

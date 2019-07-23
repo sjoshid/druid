@@ -35,7 +35,7 @@ mod tools;
 use draw::draw_paths;
 use path::{Path, PathPoint, PointId};
 use toolbar::{Toolbar, ToolbarState};
-use tools::{Pen, Select, Tool};
+use tools::{Mouse, Pen, Select, Tool};
 
 const BG_COLOR: Color = Color::rgb24(0xfb_fb_fb);
 const TOOLBAR_POSITION: Point = Point::new(8., 8.);
@@ -59,6 +59,7 @@ struct CanvasState {
     tool: Box<dyn Tool>,
     /// The paths in the canvas
     contents: Contents,
+    mouse: Mouse,
     toolbar: ToolbarState,
 }
 
@@ -68,6 +69,7 @@ impl CanvasState {
             tool: Box::new(Pen::new()),
             contents: Contents::default(),
             toolbar: ToolbarState::basic(),
+            mouse: Mouse::new(),
         }
     }
 
@@ -360,8 +362,21 @@ impl Widget<CanvasState> for Canvas {
         }
 
         // then pass the event to the active tool
-        let CanvasState { tool, contents, .. } = data;
-        if ctx.is_handled() || tool.event(contents, event) {
+        let CanvasState {
+            tool,
+            contents,
+            mouse,
+            ..
+        } = data;
+        if ctx.is_handled()
+            || match event {
+                Event::KeyDown(k) => tool.key_down(contents, k),
+                Event::MouseUp(m) => mouse.mouse_up(contents, m.clone(), tool),
+                Event::MouseMoved(m) => mouse.mouse_moved(contents, m.clone(), tool),
+                Event::MouseDown(m) => mouse.mouse_down(contents, m.clone(), tool),
+                _ => false,
+            }
+        {
             ctx.invalidate();
         }
 
