@@ -74,6 +74,12 @@ impl DPoint {
         DPoint::new(point.x.round(), point.y.round())
     }
 
+    /// Convert a design point directly to a point, without taking screen geometry
+    /// into account.
+    ///
+    /// We don't really want to use this, but it's useful sometimes for using
+    /// operations available on `Point`.
+    #[doc(hidden)]
     fn to_raw(self) -> Point {
         Point::new(self.x, self.y)
     }

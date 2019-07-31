@@ -16,7 +16,7 @@
 
 use std::collections::BTreeSet;
 
-use druid::kurbo::{Affine, Point, Rect, Size, TranslateScale, Vec2};
+use druid::kurbo::{Point, Rect, Size, TranslateScale, Vec2};
 use druid::piet::{Color, RenderContext};
 use druid::shell::window::Cursor;
 use druid::shell::{runloop, WindowBuilder};
@@ -40,7 +40,7 @@ use tools::{Mouse, Pen, Select, Tool};
 const BG_COLOR: Color = Color::rgb24(0xfb_fb_fb);
 const TOOLBAR_POSITION: Point = Point::new(8., 8.);
 const MIN_ZOOM: f64 = 0.2;
-const MAX_ZOOM: f64 = 10.;
+const MAX_ZOOM: f64 = 50.;
 
 const MIN_SCROLL: f64 = -5000.;
 const MAX_SCROLL: f64 = 5000.;

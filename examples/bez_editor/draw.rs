@@ -47,25 +47,30 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
         DrawCtx { ctx, space }
     }
 
-    fn draw_origin(&mut self) {
-        let brush = self.solid_brush(Color::rgb24(0x_FF_AA_AA));
-        let brush1 = self.solid_brush(Color::rgb24(0x_00_00_FF));
-        let brush2 = self.solid_brush(Color::rgb24(0x_AA_AA_AA));
-        for i in -100..=100_i32 {
-            let brush = match i.abs() {
-                0 => &brush1,
-                x if x % 3 == 0 => &brush,
-                _ => &brush2,
-            };
-            let c = i as f64 * 20.0;
-            let xmax = self.space.to_screen((c, 5000.));
-            let xmin = self.space.to_screen((c, -5000.));
-            let ymax = self.space.to_screen((5000., c));
-            let ymin = self.space.to_screen((-5000., c));
+    fn draw_grid(&mut self) {
+        if self.space.zoom >= 8.0 {
+            let grid_fade = ((self.space.zoom - 8.) / 10.).min(1.0).max(0.01);
+            let gray_val = 0xFF - (0x44 as f64 * grid_fade) as u32;
+            let gray = gray_val << 16 | gray_val << 8 | gray_val;
+            let brush = self.solid_brush(Color::rgb24(gray));
 
-            if i.abs() % 3 == 0 || self.space.zoom >= 1.0 {
-                self.stroke(Line::new(xmin, xmax), brush, 1.0, None);
-                self.stroke(Line::new(ymin, ymax), brush, 1.0, None);
+            // TODO: use view size
+            // TODO: more efficient maybe to just save the grid as a bezier,
+            // then just transform and draw?
+            let visible_pixels = 2000 / self.space.zoom as usize;
+            let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
+            let Point { x, y } = view_origin.round();
+            let x1 = x - 1.;
+            let y1 = y - 1.;
+            for i in 0..=visible_pixels {
+                let off = i as f64;
+                let len = visible_pixels as f64;
+                let xmin = self.space.to_screen((x1 + off, y1));
+                let xmax = self.space.to_screen((x1 + off, y1 + len));
+                let ymin = self.space.to_screen((x1, y1 + off));
+                let ymax = self.space.to_screen((x1 + len, y1 + off));
+                self.stroke(Line::new(xmin, xmax), &brush, 1.0, None);
+                self.stroke(Line::new(ymin, ymax), &brush, 1.0, None);
             }
         }
     }
@@ -292,7 +297,7 @@ pub(crate) fn draw_paths(
     _mouse: Point,
 ) {
     let mut draw_ctx = DrawCtx::new(&mut ctx.render_ctx, space);
-    draw_ctx.draw_origin();
+    draw_ctx.draw_grid();
     for path in paths {
         let bez = space.transform() * path.bezier().clone();
         draw_ctx.draw_path(&bez);
