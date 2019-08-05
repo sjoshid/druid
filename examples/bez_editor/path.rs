@@ -361,11 +361,10 @@ impl Path {
             .hypot()
             .abs();
         let new_pos = self.points[on_curve].raw_point() + new_angle * handle_len;
-        dbg!(new_angle, handle_len, new_pos);
         self.points_mut()[bcp2].point = DPoint::from_raw(new_pos);
     }
 
-    fn debug_print_points(&self) {
+    pub fn debug_print_points(&self) {
         eprintln!(
             "path {}, len {} closed {}",
             self.id,
@@ -397,7 +396,7 @@ impl Path {
         let prev_idx = self.prev_idx(idx);
         let next_idx = self.next_idx(idx);
 
-        eprintln!("deleting {:?}", point_id);
+        eprintln!("deleting {:?}", idx);
         self.debug_print_points();
 
         match self.points[idx].typ {
@@ -439,6 +438,22 @@ impl Path {
                 if self.points.len() == 3 {
                     self.points_mut().retain(|p| p.is_on_curve());
                 }
+            }
+        }
+
+        // check if any points are smooth that should now just be corners
+        for idx in 0..self.points.len() {
+            let prev_idx = match idx {
+                0 => self.points.len() - 1,
+                other => other - 1,
+            };
+            let next_idx = (idx + 1) % self.points.len();
+
+            if self.points[idx].typ == PointType::OnCurveSmooth
+                && self.points[prev_idx].is_on_curve()
+                && self.points[next_idx].is_on_curve()
+            {
+                self.points_mut()[idx].typ = PointType::OnCurve;
             }
         }
 

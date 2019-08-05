@@ -106,10 +106,6 @@ impl ToolbarState {
     pub fn selected_item(&self) -> &ToolbarItem {
         &self.items[self.selected]
     }
-
-    pub fn selected_idx(&self) -> usize {
-        self.selected
-    }
 }
 
 impl Toolbar {

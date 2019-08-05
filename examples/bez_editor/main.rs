@@ -437,6 +437,10 @@ impl Widget<CanvasState> for Canvas {
         data: &mut CanvasState,
         _env: &Env,
     ) -> Option<Action> {
+        //TODO: wire up some sort of 'ApplicationStarted event (https://github.com/xi-editor/druid/issues/103)
+        if !ctx.has_focus() {
+            ctx.request_focus();
+        }
         // first check for top-level commands
         match event {
             Event::KeyUp(key) if key.key_code == KeyCode::Escape => {
@@ -481,30 +485,19 @@ impl Widget<CanvasState> for Canvas {
         }
 
         data.update_tool_if_necessary();
+        let cursor_name = data.toolbar.selected_item().name.as_str();
+        let cursor = cursor_for_string(cursor_name);
+        ctx.set_cursor(&cursor);
         None
     }
 
     fn update(
         &mut self,
         ctx: &mut UpdateCtx,
-        old: Option<&CanvasState>,
+        _old: Option<&CanvasState>,
         new: &CanvasState,
         _env: &Env,
     ) {
-        // update the mouse icon if the active tool has changed
-        let old = match old {
-            Some(old) => old,
-            None => return,
-        };
-
-        if old.toolbar.selected_idx() != new.toolbar.selected_idx() {
-            match new.toolbar.selected_item().name.as_str() {
-                "select" => ctx.window().set_cursor(&Cursor::Arrow),
-                "pen" => ctx.window().set_cursor(&Cursor::Crosshair),
-                other => eprintln!("unknown tool '{}'", other),
-            }
-            ctx.invalidate();
-        }
         self.toolbar.update(ctx, &new.toolbar, _env);
     }
 }
@@ -515,11 +508,18 @@ fn main() {
     let mut run_loop = runloop::RunLoop::new();
     let mut builder = WindowBuilder::new();
     let state = CanvasState::new();
-    let mut state = UiState::new(Canvas::new(), state);
-    state.set_active(true);
+    let state = UiState::new(Canvas::new(), state);
     builder.set_title("Paths");
     builder.set_handler(Box::new(UiMain::new(state)));
     let window = builder.build().unwrap();
     window.show();
     run_loop.run();
+}
+
+fn cursor_for_string(s: &str) -> Cursor {
+    match s {
+        "select" => Cursor::Arrow,
+        "pen" => Cursor::Crosshair,
+        other => panic!("unknown tool '{}'", other),
+    }
 }
