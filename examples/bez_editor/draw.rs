@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use super::guides::Guide;
 use super::path::{Path, PointId, PointType};
 use super::{Tool, ViewPort};
 use druid::kurbo::{Affine, BezPath, Circle, CubicBez, Line, PathSeg, Point, Rect, Vec2};
@@ -9,6 +10,7 @@ use druid::piet::{Color, FillRule::NonZero, Piet, RenderContext};
 use druid::PaintCtx;
 
 const PATH_COLOR: Color = Color::rgb24(0x00_00_00);
+const GUIDE_COLOR: Color = Color::rgb24(0xFC_54_93);
 const SELECTION_RECT_BG_COLOR: Color = Color::rgba32(0xDD_DD_DD_55);
 const SELECTION_RECT_STROKE_COLOR: Color = Color::rgb24(0x53_8B_BB);
 const SMOOTH_POINT_COLOR: Color = Color::rgb24(0x_41_8E_22);
@@ -72,6 +74,44 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
                 self.stroke(Line::new(xmin, xmax), &brush, 1.0, None);
                 self.stroke(Line::new(ymin, ymax), &brush, 1.0, None);
             }
+        }
+    }
+
+    fn draw_guides(&mut self, guides: &[Guide]) {
+        //eprintln!("drawing {} guides", guides.len());
+        let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
+        let Point { x, y } = view_origin.round();
+        let visible_pixels = 2000. / self.space.zoom;
+        let bounds = Rect::from_points((x, y), (x + visible_pixels, y + visible_pixels));
+
+        let brush = self.solid_brush(GUIDE_COLOR);
+        for guide in guides {
+            let line = self.line_for_guide(guide);
+            if intersects(line, bounds) {
+                //eprintln!("drawing {:?}", line);
+                self.stroke(line, &brush, 0.5, None);
+            } else {
+                eprintln!("skipping {:?}", guide);
+            }
+        }
+    }
+
+    fn line_for_guide(&self, guide: &Guide) -> Line {
+        let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
+        let Point { x, y } = view_origin.round();
+        let visible_pixels = 2000. / self.space.zoom;
+        match guide {
+            Guide::Horiz(p) => {
+                let p1 = self.space.to_screen((x, p.y));
+                let p2 = self.space.to_screen((x + visible_pixels, p.y));
+                Line::new(p1, p2)
+            }
+            Guide::Vertical(p) => {
+                let p1 = self.space.to_screen((p.x, y));
+                let p2 = self.space.to_screen((p.x, y + visible_pixels));
+                Line::new(p1, p2)
+            }
+            Guide::Angle { p1, p2 } => Line::new(Point::ZERO, Point::ZERO),
         }
     }
 
@@ -291,6 +331,7 @@ impl<'a> std::iter::Iterator for PointIter<'a> {
 pub(crate) fn draw_paths(
     paths: &[Path],
     sels: &BTreeSet<PointId>,
+    guides: &[Guide],
     tool: &dyn Tool,
     space: ViewPort,
     ctx: &mut PaintCtx,
@@ -298,6 +339,7 @@ pub(crate) fn draw_paths(
 ) {
     let mut draw_ctx = DrawCtx::new(&mut ctx.render_ctx, space);
     draw_ctx.draw_grid();
+    draw_ctx.draw_guides(guides);
     for path in paths {
         let bez = space.transform() * path.bezier().clone();
         draw_ctx.draw_path(&bez);
@@ -364,4 +406,22 @@ fn make_arrow() -> BezPath {
     bez.line_to((12., 0.));
     bez.close_path();
     bez
+}
+
+fn intersects(line: Line, rect: Rect) -> bool {
+    let linev = line.p1 - line.p0;
+    let tl = rect.origin();
+    let bl = Point::new(rect.x0, rect.y1);
+    let tr = Point::new(rect.x1, rect.y0);
+    let br = Point::new(rect.x1, rect.y1);
+    let left = bl - tl;
+    let top = tr - tl;
+    let right = br - tr;
+    let bottom = br - bl;
+    let s: f64 = [left, top, right, bottom]
+        .iter()
+        .map(|v| linev.dot(*v).signum())
+        .sum();
+
+    s.abs() == 4.0
 }

@@ -18,6 +18,7 @@ pub struct Select {
     prev_selection: Option<Arc<BTreeSet<PointId>>>,
     drag_rect: Option<Rect>,
     last_drag_pos: Option<Point>,
+    last_pos: Point,
 }
 
 impl Select {
@@ -26,6 +27,7 @@ impl Select {
             prev_selection: None,
             drag_rect: None,
             last_drag_pos: None,
+            last_pos: Point::ZERO,
         }
     }
 
@@ -73,6 +75,11 @@ impl Select {
 }
 
 impl MouseDelegate<Contents> for Select {
+    fn mouse_moved(&mut self, _canvas: &mut Contents, event: &MouseEvent) -> bool {
+        self.last_pos = event.pos;
+        false
+    }
+
     fn left_down(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
         if event.count == 1 {
             let sel = canvas
@@ -175,6 +182,10 @@ impl Tool for Select {
             }
             e if e.key_code == Backspace => {
                 canvas.delete_selection();
+                true
+            }
+            e if e.text() == Some("g") && e.mods.meta => {
+                canvas.add_guide(self.last_pos);
                 true
             }
             e if e.text() == Some("a") && e.mods.meta && !e.mods.shift => {

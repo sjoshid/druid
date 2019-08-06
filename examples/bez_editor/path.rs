@@ -43,8 +43,8 @@ pub enum PointType {
 /// and takes account of, the current viewport.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DPoint {
-    x: f64,
-    y: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl DPoint {
@@ -118,7 +118,7 @@ impl DVec2 {
 #[derive(Debug, Clone, Copy)]
 pub struct PathPoint {
     pub id: PointId,
-    point: DPoint,
+    pub point: DPoint,
     pub typ: PointType,
 }
 
@@ -556,6 +556,11 @@ impl Path {
 
     fn idx_for_point(&self, point: PointId) -> Option<usize> {
         self.points.iter().position(|p| p.id == point)
+    }
+
+    pub(crate) fn path_point_for_id(&self, point: PointId) -> Option<PathPoint> {
+        assert!(point.path == self.id);
+        self.idx_for_point(point).map(|idx| self.points[idx])
     }
 
     pub(crate) fn prev_point(&self, point: PointId) -> PathPoint {

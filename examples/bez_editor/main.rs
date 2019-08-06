@@ -28,11 +28,13 @@ use druid::{
 };
 
 mod draw;
+mod guides;
 mod path;
 mod toolbar;
 mod tools;
 
 use draw::draw_paths;
+use guides::Guide;
 use path::{DPoint, DVec2, Path, PathPoint, PointId};
 use toolbar::{Toolbar, ToolbarState};
 use tools::{Mouse, Pen, Select, Tool};
@@ -174,6 +176,7 @@ pub(crate) struct Contents {
     paths: Arc<Vec<Path>>,
     /// Selected points, including the path index and the point id.
     selection: Arc<BTreeSet<PointId>>,
+    guides: Arc<Vec<Guide>>,
     vport: ViewPort,
 }
 
@@ -234,6 +237,10 @@ impl Contents {
         Arc::make_mut(&mut self.selection)
     }
 
+    pub(crate) fn guides_mut(&mut self) -> &mut Vec<Guide> {
+        Arc::make_mut(&mut self.guides)
+    }
+
     /// Return the index of the path that is currently drawing. To be currently
     /// drawing, there must be a single currently selected point.
     fn active_path_idx(&self) -> Option<usize> {
@@ -243,6 +250,13 @@ impl Contents {
         } else {
             None
         }
+    }
+
+    fn path_point_for_id(&self, id: PointId) -> Option<PathPoint> {
+        self.paths
+            .iter()
+            .find(|p| **p == id)
+            .and_then(|path| path.path_point_for_id(id))
     }
 
     fn path_for_point_mut(&mut self, point: PointId) -> Option<&mut Path> {
@@ -362,6 +376,35 @@ impl Contents {
         true
     }
 
+    pub(crate) fn add_guide(&mut self, point: Point) {
+        // if one or two points are selected, use them. else use argument point.
+        let guide = match self.selection.len() {
+            1 => {
+                let id = *self.selection.iter().next().unwrap();
+                let p = self.path_point_for_id(id).map(|pp| pp.point).unwrap();
+                Guide::horiz(p)
+            }
+            2 => {
+                let mut iter = self.selection.iter().cloned();
+                let p1 = self
+                    .path_point_for_id(iter.next().unwrap())
+                    .map(|pp| pp.point)
+                    .unwrap();
+                let p2 = self
+                    .path_point_for_id(iter.next().unwrap())
+                    .map(|pp| pp.point)
+                    .unwrap();
+                Guide::angle(p1, p2)
+            }
+            _ => {
+                let p1 = DPoint::from_screen(point, self.vport);
+                Guide::horiz(p1)
+            }
+        };
+
+        self.guides_mut().push(guide);
+    }
+
     pub(crate) fn update_for_drag(&mut self, drag_point: Point) {
         let drag_point = DPoint::from_screen(drag_point, self.vport);
         self.active_path_mut().unwrap().update_for_drag(drag_point);
@@ -392,6 +435,7 @@ impl Data for Contents {
     fn same(&self, other: &Self) -> bool {
         self.paths.same(&other.paths)
             && self.selection.same(&other.selection)
+            && self.guides.same(&other.guides)
             && self.vport == other.vport
     }
 }
@@ -408,6 +452,7 @@ impl Widget<CanvasState> for Canvas {
         draw_paths(
             &data.contents.paths,
             &data.contents.selection,
+            &data.contents.guides,
             &*data.tool,
             data.contents.vport,
             paint_ctx,
