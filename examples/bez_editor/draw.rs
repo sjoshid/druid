@@ -80,24 +80,24 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
 
     fn draw_guides(&mut self, guides: &[Guide], sels: &BTreeSet<PointId>) {
         //eprintln!("drawing {} guides", guides.len());
-        let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
-        let Point { x, y } = view_origin.round();
-        let visible_pixels = 2000. / self.space.zoom;
-        let bounds = Rect::from_points((x, y), (x + visible_pixels, y + visible_pixels));
+        //let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
+        //let Point { x, y } = view_origin.round();
+        //let visible_pixels = 2000. / self.space.zoom;
+        //let bounds = Rect::from_points((x, y), (x + visible_pixels, y + visible_pixels));
 
         let brush = self.solid_brush(GUIDE_COLOR);
         let sel_brush = self.solid_brush(SELECTED_GUIDE_COLOR);
         for guide in guides {
             let line = self.line_for_guide(guide);
-            if intersects(line, bounds) {
-                //eprintln!("drawing {:?}", line);
-                if sels.contains(&guide.id) {
-                    self.stroke(line, &sel_brush, 8.0, None);
-                }
-                self.stroke(line, &brush, 0.5, None);
-            } else {
-                eprintln!("skipping {:?}", guide);
+            //if intersects(line, bounds) {
+            //eprintln!("drawing {:?}", line);
+            if sels.contains(&guide.id) {
+                self.stroke(line, &sel_brush, 8.0, None);
             }
+            self.stroke(line, &brush, 0.5, None);
+            //} else {
+            //eprintln!("skipping {:?}", guide);
+            //}
         }
     }
 
@@ -116,7 +116,15 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
                 let p2 = self.space.to_screen((p.x, y + visible_pixels));
                 Line::new(p1, p2)
             }
-            GuideLine::Angle { p1, p2 } => Line::new(Point::ZERO, Point::ZERO),
+            GuideLine::Angle { p1, p2 } => {
+                let p1 = p1.to_screen(self.space);
+                let p2 = p2.to_screen(self.space);
+                let vec = (p2 - p1).normalize();
+                let p1 = p2 - vec * 5000.; // an arbitrary number
+                let p2 = p2 + vec * 5000.;
+                Line::new(p1, p2)
+
+            } //Line::new(Point::ZERO, Point::ZERO),
         }
     }
 
@@ -413,20 +421,20 @@ fn make_arrow() -> BezPath {
     bez
 }
 
-fn intersects(line: Line, rect: Rect) -> bool {
-    let linev = line.p1 - line.p0;
-    let tl = rect.origin();
-    let bl = Point::new(rect.x0, rect.y1);
-    let tr = Point::new(rect.x1, rect.y0);
-    let br = Point::new(rect.x1, rect.y1);
-    let left = bl - tl;
-    let top = tr - tl;
-    let right = br - tr;
-    let bottom = br - bl;
-    let s: f64 = [left, top, right, bottom]
-        .iter()
-        .map(|v| linev.dot(*v).signum())
-        .sum();
+//fn intersects(line: Line, rect: Rect) -> bool {
+//let linev = line.p1 - line.p0;
+//let tl = rect.origin();
+//let bl = Point::new(rect.x0, rect.y1);
+//let tr = Point::new(rect.x1, rect.y0);
+//let br = Point::new(rect.x1, rect.y1);
+//let left = bl - tl;
+//let top = tr - tl;
+//let right = br - tr;
+//let bottom = br - bl;
+//let s: f64 = [left, top, right, bottom]
+//.iter()
+//.map(|v| linev.dot(*v).signum())
+//.sum();
 
-    s.abs() == 4.0
-}
+//s.abs() == 4.0
+//}

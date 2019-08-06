@@ -56,7 +56,13 @@ impl Guide {
             }
             GuideLine::Angle { p1, p2 } => {
                 //FIXME: this line is not not infinite, which it should be.
-                let line = vport.transform() * Line::new(p1.to_raw(), p2.to_raw());
+                let p1 = p1.to_screen(vport);
+                let p2 = p2.to_screen(vport);
+                let vec = (p2 - p1).normalize();
+                let p1 = p2 - vec * 5000.; // an arbitrary number
+                let p2 = p2 + vec * 5000.;
+                let line = Line::new(p1, p2);
+                //let line = vport.transform() * Line::new(p1.to_raw(), p2.to_raw());
                 let (x, y) = line.nearest(point, 0.1);
                 Vec2::new(x, y).hypot()
             }
