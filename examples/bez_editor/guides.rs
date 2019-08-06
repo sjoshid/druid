@@ -1,31 +1,43 @@
-use crate::path::DPoint;
-use druid::kurbo::{Line, Rect};
+use crate::path::{DPoint, PointId};
 
-/// A guideline, represented as two points on an infinite line.
-///
-/// It is an invariant that the points are non-equal.
 #[derive(Debug, Clone)]
-pub enum Guide {
+pub struct Guide {
+    pub id: PointId,
+    pub guide: GuideLine,
+}
+
+/// A guideline.
+#[derive(Debug, Clone)]
+pub enum GuideLine {
     Horiz(DPoint),
     Vertical(DPoint),
     Angle { p1: DPoint, p2: DPoint },
 }
 
 impl Guide {
+    fn new(guide: GuideLine) -> Self {
+        let id = PointId::for_guide();
+        Guide { id, guide }
+    }
+
     pub fn horiz(p1: DPoint) -> Self {
-        Guide::Horiz(p1)
+        Guide::new(GuideLine::Horiz(p1))
+    }
+
+    pub fn vertical(p1: DPoint) -> Self {
+        Guide::new(GuideLine::Vertical(p1))
     }
 
     pub fn angle(p1: DPoint, p2: DPoint) -> Self {
-        Guide::Angle { p1, p2 }
+        Guide::new(GuideLine::Angle { p1, p2 })
     }
 
     pub fn toggle_vertical_horiz(&mut self) {
-        let new = match &self {
-            Guide::Horiz(point) => Guide::Vertical(*point),
-            Guide::Vertical(point) => Guide::Horiz(*point),
-            Guide::Angle { p1, p2 } => Guide::angle(*p1, *p2),
+        let new = match self.guide {
+            GuideLine::Horiz(point) => GuideLine::Vertical(point),
+            GuideLine::Vertical(point) => GuideLine::Horiz(point),
+            GuideLine::Angle { p1, p2 } => GuideLine::Angle { p1, p2 },
         };
-        *self = new;
+        self.guide = new;
     }
 }

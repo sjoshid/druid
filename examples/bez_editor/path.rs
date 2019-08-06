@@ -8,7 +8,7 @@ use druid::Data;
 /// We give paths & points unique integer identifiers.
 fn next_id() -> usize {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
@@ -16,6 +16,15 @@ fn next_id() -> usize {
 pub struct PointId {
     pub(crate) path: usize,
     pub(crate) point: usize,
+}
+
+impl PointId {
+    pub(crate) fn for_guide() -> Self {
+        PointId {
+            path: 0,
+            point: next_id(),
+        }
+    }
 }
 
 impl std::cmp::PartialEq<Path> for PointId {

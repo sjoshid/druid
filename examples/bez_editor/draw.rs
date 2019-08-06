@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::guides::Guide;
+use super::guides::{Guide, GuideLine};
 use super::path::{Path, PointId, PointType};
 use super::{Tool, ViewPort};
 use druid::kurbo::{Affine, BezPath, Circle, CubicBez, Line, PathSeg, Point, Rect, Vec2};
@@ -11,6 +11,7 @@ use druid::PaintCtx;
 
 const PATH_COLOR: Color = Color::rgb24(0x00_00_00);
 const GUIDE_COLOR: Color = Color::rgb24(0xFC_54_93);
+const SELECTED_GUIDE_COLOR: Color = Color::rgb24(0xFE_ED_ED);
 const SELECTION_RECT_BG_COLOR: Color = Color::rgba32(0xDD_DD_DD_55);
 const SELECTION_RECT_STROKE_COLOR: Color = Color::rgb24(0x53_8B_BB);
 const SMOOTH_POINT_COLOR: Color = Color::rgb24(0x_41_8E_22);
@@ -77,7 +78,7 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
         }
     }
 
-    fn draw_guides(&mut self, guides: &[Guide]) {
+    fn draw_guides(&mut self, guides: &[Guide], sels: &BTreeSet<PointId>) {
         //eprintln!("drawing {} guides", guides.len());
         let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
         let Point { x, y } = view_origin.round();
@@ -85,10 +86,14 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
         let bounds = Rect::from_points((x, y), (x + visible_pixels, y + visible_pixels));
 
         let brush = self.solid_brush(GUIDE_COLOR);
+        let sel_brush = self.solid_brush(SELECTED_GUIDE_COLOR);
         for guide in guides {
             let line = self.line_for_guide(guide);
             if intersects(line, bounds) {
                 //eprintln!("drawing {:?}", line);
+                if sels.contains(&guide.id) {
+                    self.stroke(line, &sel_brush, 8.0, None);
+                }
                 self.stroke(line, &brush, 0.5, None);
             } else {
                 eprintln!("skipping {:?}", guide);
@@ -100,18 +105,18 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
         let view_origin = self.space.transform().inverse() * Point::new(0., 0.);
         let Point { x, y } = view_origin.round();
         let visible_pixels = 2000. / self.space.zoom;
-        match guide {
-            Guide::Horiz(p) => {
+        match guide.guide {
+            GuideLine::Horiz(p) => {
                 let p1 = self.space.to_screen((x, p.y));
                 let p2 = self.space.to_screen((x + visible_pixels, p.y));
                 Line::new(p1, p2)
             }
-            Guide::Vertical(p) => {
+            GuideLine::Vertical(p) => {
                 let p1 = self.space.to_screen((p.x, y));
                 let p2 = self.space.to_screen((p.x, y + visible_pixels));
                 Line::new(p1, p2)
             }
-            Guide::Angle { p1, p2 } => Line::new(Point::ZERO, Point::ZERO),
+            GuideLine::Angle { p1, p2 } => Line::new(Point::ZERO, Point::ZERO),
         }
     }
 
@@ -339,7 +344,7 @@ pub(crate) fn draw_paths(
 ) {
     let mut draw_ctx = DrawCtx::new(&mut ctx.render_ctx, space);
     draw_ctx.draw_grid();
-    draw_ctx.draw_guides(guides);
+    draw_ctx.draw_guides(guides, sels);
     for path in paths {
         let bez = space.transform() * path.bezier().clone();
         draw_ctx.draw_path(&bez);

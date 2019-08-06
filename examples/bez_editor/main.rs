@@ -381,27 +381,37 @@ impl Contents {
         let guide = match self.selection.len() {
             1 => {
                 let id = *self.selection.iter().next().unwrap();
-                let p = self.path_point_for_id(id).map(|pp| pp.point).unwrap();
-                Guide::horiz(p)
+                if id.path != 0 {
+                    let p = self.path_point_for_id(id).map(|pp| pp.point).unwrap();
+                    Some(Guide::horiz(p))
+                } else {
+                    None
+                }
             }
             2 => {
                 let mut iter = self.selection.iter().cloned();
-                let p1 = self
-                    .path_point_for_id(iter.next().unwrap())
-                    .map(|pp| pp.point)
-                    .unwrap();
-                let p2 = self
-                    .path_point_for_id(iter.next().unwrap())
-                    .map(|pp| pp.point)
-                    .unwrap();
-                Guide::angle(p1, p2)
+                let id1 = iter.next().unwrap();
+                let id2 = iter.next().unwrap();
+                if id1.path != 0 && id2.path != 0 {
+                    let p1 = self
+                        .path_point_for_id(iter.next().unwrap())
+                        .map(|pp| pp.point)
+                        .unwrap();
+                    let p2 = self
+                        .path_point_for_id(iter.next().unwrap())
+                        .map(|pp| pp.point)
+                        .unwrap();
+                    Some(Guide::angle(p1, p2))
+                } else {
+                    None
+                }
             }
-            _ => {
-                let p1 = DPoint::from_screen(point, self.vport);
-                Guide::horiz(p1)
-            }
+            _ => None,
         };
 
+        let guide = guide.unwrap_or_else(|| Guide::horiz(DPoint::from_screen(point, self.vport)));
+        self.selection_mut().clear();
+        self.selection_mut().insert(guide.id);
         self.guides_mut().push(guide);
     }
 
