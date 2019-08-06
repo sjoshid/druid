@@ -83,9 +83,8 @@ impl MouseDelegate<Contents> for Select {
     fn left_down(&mut self, canvas: &mut Contents, event: &MouseEvent) -> bool {
         if event.count == 1 {
             let sel = canvas
-                .iter_points()
-                .find(|p| p.screen_dist(canvas.vport, event.pos) <= MIN_POINT_DISTANCE)
-                .map(|p| p.id);
+                .iter_items_near_point(event.pos, MIN_POINT_DISTANCE)
+                .next();
             if let Some(point_id) = sel {
                 if !event.mods.shift {
                     // when clicking a point, if it is not selected we set it as the selection,
@@ -101,15 +100,23 @@ impl MouseDelegate<Contents> for Select {
                 canvas.selection_mut().clear();
             }
         } else if event.count == 2 {
-            if canvas
-                .iter_points()
-                .find(|p| p.screen_dist(canvas.vport, event.pos) <= MIN_POINT_DISTANCE)
-                .map(|p| p.is_on_curve())
-                .unwrap_or(false)
-            {
-                canvas.toggle_selected_on_curve_type();
-            } else {
-                canvas.select_path(event.pos, event.mods.shift);
+            let sel = canvas
+                .iter_items_near_point(event.pos, MIN_POINT_DISTANCE)
+                .next()
+                .clone();
+            match sel {
+                Some(id)
+                    if canvas
+                        .path_point_for_id(id)
+                        .map(|p| p.is_on_curve())
+                        .unwrap_or(false) =>
+                {
+                    canvas.toggle_selected_on_curve_type()
+                }
+                Some(id) if id.is_guide() => canvas.toggle_guide(id, event.pos),
+                _ => {
+                    canvas.select_path(event.pos, event.mods.shift);
+                }
             }
         }
         true
@@ -123,8 +130,9 @@ impl MouseDelegate<Contents> for Select {
 
     fn left_drag_began(&mut self, canvas: &mut Contents, drag: Drag) -> bool {
         self.prev_selection = if canvas
-            .iter_points()
-            .any(|p| p.screen_dist(canvas.vport, drag.start.pos) <= MIN_POINT_DISTANCE)
+            .iter_items_near_point(drag.start.pos, MIN_POINT_DISTANCE)
+            .next()
+            .is_some()
         {
             None
         } else {

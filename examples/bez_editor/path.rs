@@ -25,6 +25,10 @@ impl PointId {
             point: next_id(),
         }
     }
+
+    pub(crate) fn is_guide(self) -> bool {
+        self.path == 0
+    }
 }
 
 impl std::cmp::PartialEq<Path> for PointId {
@@ -89,7 +93,7 @@ impl DPoint {
     /// We don't really want to use this, but it's useful sometimes for using
     /// operations available on `Point`.
     #[doc(hidden)]
-    fn to_raw(self) -> Point {
+    pub fn to_raw(self) -> Point {
         Point::new(self.x, self.y)
     }
 }
@@ -97,8 +101,8 @@ impl DPoint {
 /// A vector in design space, used for nudging & dragging
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DVec2 {
-    x: f64,
-    y: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl DVec2 {

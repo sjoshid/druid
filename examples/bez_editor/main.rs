@@ -302,12 +302,17 @@ impl Contents {
         if self.selection.is_empty() {
             return;
         }
-        //let nudge = DVec2::from_raw(nudge);
 
         let to_nudge = PathSelection::new(&self.selection);
         for path_points in to_nudge.iter() {
             if let Some(path) = self.path_for_point_mut(path_points[0]) {
                 path.nudge_points(path_points, nudge);
+            } else if path_points[0].is_guide() {
+                for id in path_points {
+                    if let Some(guide) = self.guides_mut().iter_mut().find(|g| g.id == *id) {
+                        guide.nudge(nudge);
+                    }
+                }
             }
         }
     }
@@ -318,6 +323,8 @@ impl Contents {
         for path_points in to_delete.iter() {
             if let Some(path) = self.path_for_point_mut(path_points[0]) {
                 path.delete_points(path_points);
+            } else if path_points[0].is_guide() {
+                self.guides_mut().retain(|g| !path_points.contains(&g.id));
             }
         }
         self.paths_mut().retain(|p| !p.points().is_empty());
@@ -381,7 +388,7 @@ impl Contents {
         let guide = match self.selection.len() {
             1 => {
                 let id = *self.selection.iter().next().unwrap();
-                if id.path != 0 {
+                if !id.is_guide() {
                     let p = self.path_point_for_id(id).map(|pp| pp.point).unwrap();
                     Some(Guide::horiz(p))
                 } else {
@@ -392,15 +399,9 @@ impl Contents {
                 let mut iter = self.selection.iter().cloned();
                 let id1 = iter.next().unwrap();
                 let id2 = iter.next().unwrap();
-                if id1.path != 0 && id2.path != 0 {
-                    let p1 = self
-                        .path_point_for_id(iter.next().unwrap())
-                        .map(|pp| pp.point)
-                        .unwrap();
-                    let p2 = self
-                        .path_point_for_id(iter.next().unwrap())
-                        .map(|pp| pp.point)
-                        .unwrap();
+                if !id1.is_guide() && !id2.is_guide() {
+                    let p1 = self.path_point_for_id(id1).map(|pp| pp.point).unwrap();
+                    let p2 = self.path_point_for_id(id2).map(|pp| pp.point).unwrap();
                     Some(Guide::angle(p1, p2))
                 } else {
                     None
@@ -422,6 +423,34 @@ impl Contents {
 
     pub(crate) fn iter_points(&self) -> impl Iterator<Item = &PathPoint> {
         self.paths.iter().flat_map(|p| p.points().iter())
+    }
+
+    /// For hit testing; iterates 'clickable items' (just points and guides)
+    /// near a given point.
+    pub(crate) fn iter_items_near_point<'a>(
+        &'a self,
+        point: Point,
+        max_dist: f64,
+    ) -> impl Iterator<Item = PointId> + 'a {
+        self.paths
+            .iter()
+            .flat_map(|p| p.points().iter())
+            .filter(move |p| p.screen_dist(self.vport, point) <= max_dist)
+            .map(|p| p.id)
+            .chain(
+                self.guides
+                    .iter()
+                    .filter(move |g| g.screen_dist(self.vport, point) <= max_dist)
+                    .map(|g| g.id),
+            )
+    }
+
+    /// if a guide his horizontal or vertical, toggle between the two.
+    pub(crate) fn toggle_guide(&mut self, id: PointId, pos: Point) {
+        let pos = self.vport.design_point(pos);
+        if let Some(guide) = self.guides_mut().iter_mut().find(|g| g.id == id) {
+            guide.toggle_vertical_horiz(pos);
+        }
     }
 
     /// If there is a single on curve point selected, toggle it between corner and smooth
