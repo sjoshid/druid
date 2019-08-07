@@ -7,9 +7,11 @@ use druid::kurbo::{Point, Rect};
 use druid::{Data, KeyEvent, MouseEvent};
 
 mod pen;
+mod preview;
 mod select;
 
 pub use pen::Pen;
+pub use preview::Preview;
 pub use select::Select;
 
 #[derive(Debug, Clone)]

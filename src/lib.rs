@@ -411,6 +411,10 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         }
     }
 
+    pub fn inner_mut(&mut self) -> &mut W {
+        &mut self.inner
+    }
+
     /// Set layout rectangle.
     ///
     /// Intended to be called on child widget in container's `layout`

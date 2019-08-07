@@ -5,8 +5,8 @@ use std::sync::Arc;
 use druid::kurbo::{Affine, BezPath, Line, Point, Rect, Shape, Size};
 use druid::piet::{Color, FillRule, RenderContext};
 use druid::{
-    Action, BaseState, BoxConstraints, Data, Env, Event, EventCtx, KeyEvent, LayoutCtx, PaintCtx,
-    UpdateCtx, Widget,
+    Action, BaseState, BoxConstraints, Data, Env, Event, EventCtx, KeyCode, KeyEvent, LayoutCtx,
+    PaintCtx, UpdateCtx, Widget,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -19,6 +19,8 @@ pub struct Toolbar {
 pub struct ToolbarState {
     pub items: Arc<Vec<ToolbarItem>>,
     selected: usize,
+    /// preview is a special mode, active only when the spacebar is held down.
+    pub in_preview: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +88,7 @@ impl ToolbarState {
         ToolbarState {
             items: Arc::new(items),
             selected: 0,
+            in_preview: false,
         }
     }
 
@@ -105,6 +108,14 @@ impl ToolbarState {
 
     pub fn selected_item(&self) -> &ToolbarItem {
         &self.items[self.selected]
+    }
+
+    pub fn active_tool_name(&self) -> &str {
+        if self.in_preview {
+            "preview"
+        } else {
+            self.items[self.selected].name.as_str()
+        }
     }
 }
 
@@ -233,6 +244,14 @@ impl Widget<ToolbarState> for Toolbar {
                     ctx.invalidate();
                     ctx.set_handled();
                 }
+            }
+            Event::KeyDown(k) if k.key_code == KeyCode::Space && !k.is_repeat => {
+                ctx.set_handled();
+                data.in_preview = true;
+            }
+            Event::KeyUp(k) if k.key_code == KeyCode::Space => {
+                ctx.set_handled();
+                data.in_preview = false;
             }
             _ => (),
         }

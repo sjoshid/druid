@@ -37,7 +37,7 @@ use draw::draw_paths;
 use guides::Guide;
 use path::{DPoint, DVec2, Path, PathPoint, PointId};
 use toolbar::{Toolbar, ToolbarState};
-use tools::{Mouse, Pen, Select, Tool};
+use tools::{Mouse, Pen, Preview, Select, Tool};
 
 const BG_COLOR: Color = Color::rgb24(0xfb_fb_fb);
 const TOOLBAR_POSITION: Point = Point::new(8., 8.);
@@ -134,6 +134,10 @@ impl ViewPort {
         self.offset += mouse_delta;
     }
 
+    pub fn pan(&mut self, delta: Vec2) {
+        self.offset += delta
+    }
+
     pub fn transform(&self) -> TranslateScale {
         TranslateScale::new(self.offset, self.zoom)
     }
@@ -158,13 +162,15 @@ impl CanvasState {
     }
 
     fn update_tool_if_necessary(&mut self) {
-        if self.toolbar.selected_item().name == self.tool.name() {
+        if self.toolbar.active_tool_name() == self.tool.name() {
             return;
         }
 
-        let new_tool: Box<dyn Tool> = match self.toolbar.selected_item().name.as_str() {
+        let new_tool: Box<dyn Tool> = match self.toolbar.active_tool_name() {
             "pen" => Box::new(Pen::new()),
-            _ => Box::new(Select::new()),
+            "preview" => Box::new(Preview::new()),
+            "select" => Box::new(Select::new()),
+            _ => panic!("unknown tool"),
         };
         self.tool = new_tool;
     }
@@ -545,7 +551,9 @@ impl Widget<CanvasState> for Canvas {
                 ctx.set_handled();
             }
             other => {
-                self.toolbar.event(other, ctx, &mut data.toolbar, _env);
+                self.toolbar
+                    .inner_mut()
+                    .event(other, ctx, &mut data.toolbar, _env);
             }
         }
 
@@ -569,7 +577,7 @@ impl Widget<CanvasState> for Canvas {
         }
 
         data.update_tool_if_necessary();
-        let cursor_name = data.toolbar.selected_item().name.as_str();
+        let cursor_name = data.toolbar.active_tool_name();
         let cursor = cursor_for_string(cursor_name);
         ctx.set_cursor(&cursor);
         None
@@ -604,6 +612,7 @@ fn cursor_for_string(s: &str) -> Cursor {
     match s {
         "select" => Cursor::Arrow,
         "pen" => Cursor::Crosshair,
+        "preview" => Cursor::OpenHand,
         other => panic!("unknown tool '{}'", other),
     }
 }

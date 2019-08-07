@@ -133,6 +133,14 @@ impl<'a, 'b: 'a> DrawCtx<'a, 'b> {
         self.stroke(bez, &path_brush, 1.0, None);
     }
 
+    fn draw_filled_paths(&mut self, paths: &[Path]) {
+        let black = self.solid_brush(Color::BLACK);
+        for p in paths {
+            let bez = self.space.transform() * p.bezier().clone();
+            self.fill(bez, &black, NonZero);
+        }
+    }
+
     fn draw_control_point_lines(&mut self, path: &Path) {
         let mut prev_point = path.start_point().to_screen(self.space);
         let mut idx = 0;
@@ -351,6 +359,11 @@ pub(crate) fn draw_paths(
     _mouse: Point,
 ) {
     let mut draw_ctx = DrawCtx::new(&mut ctx.render_ctx, space);
+    if tool.name() == "preview" {
+        draw_ctx.draw_filled_paths(paths);
+        return;
+    }
+
     draw_ctx.draw_grid();
     draw_ctx.draw_guides(guides, sels);
     for path in paths {
