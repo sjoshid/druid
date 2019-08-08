@@ -30,6 +30,24 @@ pub struct Padding<T: Data> {
 }
 
 impl<T: Data> Padding<T> {
+    /// Create a new widget with the specified padding. The padding arguments
+    /// start at the left and proceed clockwise.
+    pub fn new(
+        left: f64,
+        top: f64,
+        right: f64,
+        bottom: f64,
+        child: impl Widget<T> + 'static,
+    ) -> Self {
+        Padding {
+            left,
+            right,
+            top,
+            bottom,
+            child: WidgetPod::new(child).boxed(),
+        }
+    }
+
     /// Create widget with uniform padding.
     pub fn uniform(padding: f64, child: impl Widget<T> + 'static) -> Padding<T> {
         Padding {
