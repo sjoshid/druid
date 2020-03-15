@@ -14,7 +14,7 @@
 
 //! Demos the textbox widget, as well as menu creation and overriding theme settings.
 
-use druid::widget::{EnvScope, Flex, Label, Padding, TextBox};
+use druid::widget::{EnvScope, Flex, Label, Padding, TextBox, WidgetExt};
 use druid::{theme, AppLauncher, Color, Data, LocalizedString, MenuDesc, Widget, WindowDesc};
 
 fn main() {
@@ -35,22 +35,45 @@ fn main() {
 }
 
 fn build_widget() -> impl Widget<String> {
-    let textbox = TextBox::new();
-    let textbox_2 = EnvScope::new(
-        |env, _| {
-            env.set(theme::BACKGROUND_LIGHT, Color::rgb8(50, 50, 50));
-            env.set(theme::LABEL_COLOR, Color::WHITE);
-            env.set(theme::CURSOR_COLOR, Color::WHITE);
-            env.set(theme::SELECTION_COLOR, Color::rgb8(100, 100, 100));
-        },
-        TextBox::new().with_placeholder("placeholder"),
-    );
-    let label = Label::new(|data: &String, _env: &_| format!("value: {}", data));
+    let textbox = TextBox::new().debug_widget();
+    let textbox2 = TextBox::new().debug_widget();
+    let textbox3 = TextBox::new().debug_widget();
+    let textbox4 = TextBox::new().debug_widget();
+    //let label = Label::new(|data: &String, _env: &_| format!("value: {}", data));
 
-    Flex::column()
-        .with_child(Padding::new(5.0, textbox), 1.0)
-        .with_child(Padding::new(5.0, textbox_2), 1.0)
-        .with_child(Padding::new(5.0, label), 1.0)
+    let column1 = Flex::column()
+        .with_child(textbox, 1.0)
+        .with_child(textbox2, 1.0)
+        .with_child(textbox3, 1.0)
+        .with_child(textbox4, 1.0);
+        //.with_child(Padding::new(5.0, label), 1.0);
+
+    let textbox5 = TextBox::new().debug_widget();
+    let textbox6 = TextBox::new().debug_widget();
+    let textbox7 = TextBox::new().debug_widget();
+    let textbox8 = TextBox::new().debug_widget();
+
+    let column2 = Flex::column()
+        .with_child(textbox5, 1.0)
+        .with_child(textbox6, 1.0)
+        .with_child(textbox7, 1.0)
+        .with_child(textbox8, 1.0);
+
+    let textbox9 = TextBox::new().debug_widget();
+    let textbox10 = TextBox::new().debug_widget();
+    let textbox11 = TextBox::new().debug_widget();
+    let textbox12 = TextBox::new().debug_widget();
+
+    let column3 = Flex::column()
+        .with_child(textbox9, 1.0)
+        .with_child(textbox10, 1.0)
+        .with_child(textbox11, 1.0)
+        .with_child(textbox12, 1.0);
+
+    let root = Flex::row().with_child(column1, 1.0).with_child(column2, 1.0)
+        .with_child(column3, 1.0);
+
+    root
 }
 
 fn make_main_menu<T: Data>() -> MenuDesc<T> {

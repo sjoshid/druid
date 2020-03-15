@@ -439,6 +439,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             }
             Event::Timer(id) => {
                 recurse = child_ctx.base_state.request_timer;
+                println!("Timer id: {:?}", child_ctx.base_state.id);
                 Event::Timer(*id)
             }
             Event::Command(cmd) => Event::Command(cmd.clone()),
@@ -503,12 +504,24 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             LifeCycle::HotChanged(_) => false,
             LifeCycle::RouteFocusChanged { old, new } => {
                 self.state.request_focus = None;
-
+                //println!("focus changed for id: {:?}", self.state.id);
                 let this_changed = if *old == Some(self.state.id) {
+                    eprintln!("old widget {:?}", self.state.id);
+                    if env.get(Env::DEBUG_WIDGET) {
+                        eprintln!("old widget {:?}", self.state.id);
+                    }
                     Some(false)
                 } else if *new == Some(self.state.id) {
+                    eprintln!("new widget {:?}", self.state.id);
+                    if env.get(Env::DEBUG_WIDGET) {
+                        eprintln!("widget {:?}", self.state.id);
+                    }
                     Some(true)
                 } else {
+                    eprintln!("none widget {:?}", self.state.id);
+                    if env.get(Env::DEBUG_WIDGET) {
+                        eprintln!("widget {:?}", self.state.id);
+                    }
                     None
                 };
 

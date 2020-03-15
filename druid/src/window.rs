@@ -148,6 +148,7 @@ impl<T: Data> Window<T> {
         };
 
         if let Some(focus_req) = base_state.request_focus.take() {
+            println!("root");
             let old = self.focus;
             let new = self.widget_for_focus_request(focus_req);
             let event = LifeCycle::RouteFocusChanged { old, new };
