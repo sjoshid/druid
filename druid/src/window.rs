@@ -284,7 +284,7 @@ impl<T: Data> Window<T> {
 
     fn paint(&mut self, piet: &mut Piet, data: &T, env: &Env) {
         let base_state = BaseState::new(self.root.id());
-        let mut paint_ctx = PaintCtx {
+        let mut ctx = PaintCtx {
             render_ctx: piet,
             base_state: &base_state,
             window_id: self.id,
@@ -293,24 +293,17 @@ impl<T: Data> Window<T> {
             region: Rect::ZERO.into(),
         };
         let visible = Rect::from_origin_size(Point::ZERO, self.size);
-        paint_ctx.with_child_ctx(visible, |ctx| self.root.paint(ctx, data, env));
+        ctx.with_child_ctx(visible, |ctx| self.root.paint(ctx, data, env));
 
-        let mut z_ops = mem::take(&mut paint_ctx.z_ops);
+        let mut z_ops = mem::take(&mut ctx.z_ops);
         z_ops.sort_by_key(|k| k.z_index);
 
         for z_op in z_ops.into_iter() {
-            paint_ctx.with_child_ctx(visible, |ctx| {
-                if let Err(e) = ctx.render_ctx.save() {
-                    log::error!("saving render context failed: {:?}", e);
-                    return;
-                }
-
-                ctx.render_ctx.transform(z_op.transform);
-                (z_op.paint_func)(ctx);
-
-                if let Err(e) = ctx.render_ctx.restore() {
-                    log::error!("restoring render context failed: {:?}", e);
-                }
+            ctx.with_child_ctx(visible, |ctx| {
+                ctx.with_save(|ctx| {
+                    ctx.render_ctx.transform(z_op.transform);
+                    (z_op.paint_func)(ctx);
+                });
             });
         }
     }

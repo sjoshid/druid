@@ -17,8 +17,10 @@
 use std::sync::Arc;
 
 use druid::lens::{self, LensExt};
-use druid::widget::{Button, Flex, Label, List, Scroll, SizedBox, WidgetExt};
-use druid::{AppLauncher, Color, Data, Lens, LocalizedString, UnitPoint, Widget, WindowDesc};
+use druid::widget::{Button, CrossAxisAlignment, Flex, Label, List, Scroll};
+use druid::{
+    AppLauncher, Color, Data, Lens, LocalizedString, UnitPoint, Widget, WidgetExt, WindowDesc,
+};
 
 #[derive(Clone, Data, Lens)]
 struct AppData {
@@ -54,14 +56,14 @@ fn ui_builder() -> impl Widget<AppData> {
             let value = data.right.len() + 1;
             Arc::make_mut(&mut data.right).push(value as u32);
         })
-        .fix_height(30.0),
-        0.0,
+        .fix_height(30.0)
+        .expand_width(),
     );
 
-    let mut lists = Flex::row();
+    let mut lists = Flex::row().cross_axis_alignment(CrossAxisAlignment::Start);
 
     // Build a simple list
-    lists.add_child(
+    lists.add_flex_child(
         Scroll::new(List::new(|| {
             Label::new(|item: &u32, _env: &_| format!("List item #{}", item))
                 .align_vertical(UnitPoint::LEFT)
@@ -76,7 +78,7 @@ fn ui_builder() -> impl Widget<AppData> {
     );
 
     // Build a list with shared data
-    lists.add_child(
+    lists.add_flex_child(
         Scroll::new(List::new(|| {
             Flex::row()
                 .with_child(
@@ -84,9 +86,8 @@ fn ui_builder() -> impl Widget<AppData> {
                         format!("List item #{}", item)
                     })
                     .align_vertical(UnitPoint::LEFT),
-                    0.0,
                 )
-                .with_child(SizedBox::empty(), 1.0)
+                .with_flex_spacer(1.0)
                 .with_child(
                     Button::new(
                         "Delete",
@@ -98,7 +99,6 @@ fn ui_builder() -> impl Widget<AppData> {
                     )
                     .fix_size(80.0, 20.0)
                     .align_vertical(UnitPoint::CENTER),
-                    0.0,
                 )
                 .padding(10.0)
                 .background(Color::rgb(0.5, 0.0, 0.5))
@@ -116,7 +116,7 @@ fn ui_builder() -> impl Widget<AppData> {
         1.0,
     );
 
-    root.add_child(lists, 1.0);
+    root.add_flex_child(lists, 1.0);
 
     // Mark the widget as needing its layout rects painted
     root.debug_paint_layout()

@@ -17,6 +17,7 @@
 mod align;
 mod button;
 mod checkbox;
+mod click;
 mod common;
 mod container;
 mod controller;
@@ -30,6 +31,7 @@ mod image;
 mod label;
 mod list;
 mod padding;
+mod painter;
 mod parse;
 mod progress_bar;
 mod radio;
@@ -52,16 +54,18 @@ pub use self::image::{Image, ImageData};
 pub use align::Align;
 pub use button::Button;
 pub use checkbox::Checkbox;
+pub use click::Click;
 pub use common::FillStrat;
 pub use container::Container;
 pub use controller::{Controller, ControllerHost};
 pub use either::Either;
 pub use env_scope::EnvScope;
-pub use flex::{CrossAxisAlignment, Flex, MainAxisAlignment};
+pub use flex::{CrossAxisAlignment, Flex, FlexParams, MainAxisAlignment};
 pub use identity_wrapper::IdentityWrapper;
 pub use label::{Label, LabelText};
 pub use list::{List, ListIter};
 pub use padding::Padding;
+pub use painter::{BackgroundBrush, Painter};
 pub use parse::Parse;
 pub use progress_bar::ProgressBar;
 pub use radio::{Radio, RadioGroup};
@@ -81,10 +85,16 @@ pub use widget_ext::WidgetExt;
 use std::num::NonZeroU64;
 use std::ops::{Deref, DerefMut};
 
-use crate::kurbo::Size;
-use crate::{
-    BoxConstraints, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, UpdateCtx,
-};
+/// The types required to implement a `Widget`.
+pub mod prelude {
+    pub use super::{Widget, WidgetId};
+    pub use crate::{
+        BoxConstraints, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx,
+        RenderContext, Size, UpdateCtx,
+    };
+}
+
+use prelude::*;
 
 /// A unique identifier for a single [`Widget`].
 ///
@@ -116,7 +126,7 @@ use crate::{
 /// [`WidgetExt::with_id`]: ../trait.WidgetExt.html#tymethod.with_id
 /// [`IdentityWrapper`]: struct.IdentityWrapper.html
 // this is NonZeroU64 because we regularly store Option<WidgetId>
-#[derive(Clone, Copy, Debug, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct WidgetId(NonZeroU64);
 
 /// The trait implemented by all widgets.
@@ -194,9 +204,7 @@ pub trait Widget<T> {
     /// for repaint.
     ///
     /// The previous value of the data is provided in case the widget wants to
-    /// compute a fine-grained delta. Before any paint operation, this method
-    /// will be called with `None` for `old_data`. Thus, this method can also be
-    /// used to build resources that will be retained for painting.
+    /// compute a fine-grained delta.
     ///
     /// [`request_paint`]: ../struct.UpdateCtx.html#method.request_paint
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env);
@@ -236,7 +244,7 @@ pub trait Widget<T> {
     ///
     /// [`PaintCtx`]: ../struct.PaintCtx.html
     /// [`RenderContext`]: ../trait.RenderContext.html
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env);
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env);
 
     #[doc(hidden)]
     /// Get the identity of the widget; this is basically only implemented by
@@ -298,8 +306,8 @@ impl<T> Widget<T> for Box<dyn Widget<T>> {
         self.deref_mut().layout(ctx, bc, data, env)
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env) {
-        self.deref_mut().paint(paint_ctx, data, env);
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        self.deref_mut().paint(ctx, data, env);
     }
 
     fn id(&self) -> Option<WidgetId> {

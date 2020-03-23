@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use log;
 
 use crate::bloom::Bloom;
-use crate::kurbo::{Affine, Insets, Point, Rect, Shape, Size};
+use crate::kurbo::{Affine, Insets, Rect, Shape, Size};
 use crate::piet::RenderContext;
 use crate::{
     BoxConstraints, Command, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
@@ -255,23 +255,24 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
     /// [`layout`]: widget/trait.Widget.html#tymethod.layout
     /// [`paint`]: widget/trait.Widget.html#tymethod.paint
     /// [`paint_with_offset`]: #method.paint_with_offset
-    pub fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env) {
-        let mut ctx = PaintCtx {
-            render_ctx: paint_ctx.render_ctx,
-            window_id: paint_ctx.window_id,
+    pub fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        let mut inner_ctx = PaintCtx {
+            render_ctx: ctx.render_ctx,
+            window_id: ctx.window_id,
             z_ops: Vec::new(),
-            region: paint_ctx.region.clone(),
+            region: ctx.region.clone(),
             base_state: &self.state,
-            focus_widget: paint_ctx.focus_widget,
+            focus_widget: ctx.focus_widget,
         };
-        self.inner.paint(&mut ctx, data, &env);
-        paint_ctx.z_ops.append(&mut ctx.z_ops);
+        self.inner.paint(&mut inner_ctx, data, &env);
+        ctx.z_ops.append(&mut inner_ctx.z_ops);
 
         if env.get(Env::DEBUG_PAINT) {
-            let rect = Rect::from_origin_size(Point::ORIGIN, ctx.size());
+            const BORDER_WIDTH: f64 = 1.0;
+            let rect = inner_ctx.size().to_rect().inset(BORDER_WIDTH / -2.0);
             let id = self.id().to_raw();
             let color = env.get_debug_color(id);
-            ctx.stroke(rect, &color, 1.0);
+            inner_ctx.stroke(rect, &color, BORDER_WIDTH);
         }
 
         self.state.needs_inval = false;
@@ -282,43 +283,34 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
     /// This will recursively paint widgets, stopping if a widget's layout
     /// rect is outside of the currently visible region.
     // Discussion: should this be `paint` and the other `paint_raw`?
-    pub fn paint_with_offset(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env) {
-        self.paint_with_offset_impl(paint_ctx, data, env, false)
+    pub fn paint_with_offset(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        self.paint_with_offset_impl(ctx, data, env, false)
     }
 
     /// Paint the widget, even if its layout rect is outside of the currently
     /// visible region.
-    pub fn paint_with_offset_always(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env) {
-        self.paint_with_offset_impl(paint_ctx, data, env, true)
+    pub fn paint_with_offset_always(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        self.paint_with_offset_impl(ctx, data, env, true)
     }
 
     /// Shared implementation that can skip drawing non-visible content.
     fn paint_with_offset_impl(
         &mut self,
-        paint_ctx: &mut PaintCtx,
+        ctx: &mut PaintCtx,
         data: &T,
         env: &Env,
         paint_if_not_visible: bool,
     ) {
-        if !paint_if_not_visible && !paint_ctx.region().intersects(self.state.paint_rect()) {
+        if !paint_if_not_visible && !ctx.region().intersects(self.state.paint_rect()) {
             return;
         }
 
-        if let Err(e) = paint_ctx.save() {
-            log::error!("saving render context failed: {:?}", e);
-            return;
-        }
-
-        let layout_origin = self.state.layout_rect.origin().to_vec2();
-        paint_ctx.transform(Affine::translate(layout_origin));
-
-        let visible = paint_ctx.region().to_rect() - layout_origin;
-
-        paint_ctx.with_child_ctx(visible, |ctx| self.paint(ctx, data, &env));
-
-        if let Err(e) = paint_ctx.restore() {
-            log::error!("restoring render context failed: {:?}", e);
-        }
+        ctx.with_save(|ctx| {
+            let layout_origin = self.state.layout_rect.origin().to_vec2();
+            ctx.transform(Affine::translate(layout_origin));
+            let visible = ctx.region().to_rect() - layout_origin;
+            ctx.with_child_ctx(visible, |ctx| self.paint(ctx, data, &env));
+        });
     }
 
     /// Compute layout of a widget.
@@ -671,8 +663,8 @@ impl BaseState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::{Flex, Scroll, Split, TextBox, WidgetExt};
-    use crate::WindowId;
+    use crate::widget::{Flex, Scroll, Split, TextBox};
+    use crate::{WidgetExt, WindowId};
 
     const ID_1: WidgetId = WidgetId::reserved(0);
     const ID_2: WidgetId = WidgetId::reserved(1);
@@ -683,9 +675,9 @@ mod tests {
         fn make_widgets() -> impl Widget<Option<u32>> {
             Split::vertical(
                 Flex::<Option<u32>>::row()
-                    .with_child(TextBox::new().with_id(ID_1).parse(), 1.0)
-                    .with_child(TextBox::new().with_id(ID_2).parse(), 1.0)
-                    .with_child(TextBox::new().with_id(ID_3).parse(), 1.0),
+                    .with_child(TextBox::new().with_id(ID_1).parse())
+                    .with_child(TextBox::new().with_id(ID_2).parse())
+                    .with_child(TextBox::new().with_id(ID_3).parse()),
                 Scroll::new(TextBox::new().parse()),
             )
         }

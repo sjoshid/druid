@@ -73,11 +73,11 @@ fn ui_builder() -> impl Widget<State> {
     });
 
     let mut col = Flex::column();
-    col.add_child(Align::centered(Padding::new(5.0, label)), 1.0);
+    col.add_flex_child(Align::centered(Padding::new(5.0, label)), 1.0);
     let mut row = Flex::row();
-    row.add_child(Padding::new(5.0, inc_button), 1.0);
-    row.add_child(Padding::new(5.0, dec_button), 1.0);
-    col.add_child(row, 1.0);
+    row.add_child(Padding::new(5.0, inc_button));
+    row.add_child(Padding::new(5.0, dec_button));
+    col.add_flex_child(Align::centered(row), 1.0);
     col
 }
 
@@ -87,7 +87,7 @@ impl AppDelegate<State> for Delegate {
     fn event(
         &mut self,
         ctx: &mut DelegateCtx,
-        _window_id: WindowId,
+        window_id: WindowId,
         event: Event,
         _data: &mut State,
         _env: &Env,
@@ -96,7 +96,7 @@ impl AppDelegate<State> for Delegate {
             Event::MouseDown(ref mouse) if mouse.button.is_right() => {
                 let menu = ContextMenu::new(make_context_menu::<State>(), mouse.pos);
                 let cmd = Command::new(druid::commands::SHOW_CONTEXT_MENU, menu);
-                ctx.submit_command(cmd, None);
+                ctx.submit_command(cmd, Target::Window(window_id));
                 None
             }
             other => Some(other),

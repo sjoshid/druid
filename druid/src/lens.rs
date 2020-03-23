@@ -22,7 +22,7 @@
 //!
 //! [`TextBox`]: ../widget/struct.TextBox.html
 //! ```
-//! use druid::{Data, Lens, Widget, widget::{TextBox, Flex, WidgetExt}};
+//! use druid::{Data, Lens, Widget, WidgetExt, widget::{TextBox, Flex}};
 //!
 //! #[derive(Clone, Debug, Data, Lens)]
 //! struct MyState {
@@ -42,7 +42,7 @@
 //!     // ...
 //!
 //!     // We can now use `searchbar` just like any other `Widget<MyState>`
-//!     Flex::column().with_child(searchbar, 1.0)
+//!     Flex::column().with_child(searchbar)
 //! }
 //! ```
 
@@ -283,10 +283,9 @@ where
             .with(data, |data| inner.layout(ctx, bc, data, env))
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
         let inner = &mut self.inner;
-        self.lens
-            .with(data, |data| inner.paint(paint_ctx, data, env));
+        self.lens.with(data, |data| inner.paint(ctx, data, env));
     }
 
     fn id(&self) -> Option<WidgetId> {

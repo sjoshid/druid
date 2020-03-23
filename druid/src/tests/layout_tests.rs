@@ -44,18 +44,20 @@ fn simple_layout() {
 fn row_column() {
     let (id1, id2, id3, id4, id5, id6) = widget_id6();
     let widget = Flex::row()
-        .with_child(
+        .must_fill_main_axis(true)
+        .with_flex_child(
             Flex::column()
-                .with_child(SizedBox::empty().with_id(id1), 1.0)
-                .with_child(SizedBox::empty().with_id(id2), 1.0),
+                .with_flex_child(SizedBox::empty().expand().with_id(id1), 1.0)
+                .with_flex_child(SizedBox::empty().expand().with_id(id2), 1.0),
             1.0,
         )
-        .with_child(
+        .with_flex_child(
             Flex::column()
-                .with_child(SizedBox::empty().with_id(id3), 1.0)
-                .with_child(SizedBox::empty().with_id(id4), 1.0)
-                .with_child(SizedBox::empty().with_id(id5), 1.0)
-                .with_child(SizedBox::empty().with_id(id6), 1.0),
+                .with_flex_child(SizedBox::empty().expand().with_id(id3), 1.0)
+                .with_flex_child(SizedBox::empty().expand().with_id(id4), 1.0)
+                .with_flex_child(SizedBox::empty().expand().with_id(id5), 1.0)
+                .with_flex_child(SizedBox::empty().expand().with_id(id6), 1.0)
+                .expand_width(),
             1.0,
         );
 
@@ -124,7 +126,7 @@ fn flex_paint_rect_overflow() {
     let id = WidgetId::next();
 
     let widget = Flex::row()
-        .with_child(
+        .with_flex_child(
             ModularWidget::new(())
                 .layout_fn(|_, ctx, bc, _, _| {
                     ctx.set_paint_insets(Insets::new(20., 0., 0., 0.));
@@ -133,7 +135,7 @@ fn flex_paint_rect_overflow() {
                 .expand(),
             1.0,
         )
-        .with_child(
+        .with_flex_child(
             ModularWidget::new(())
                 .layout_fn(|_, ctx, bc, _, _| {
                     ctx.set_paint_insets(Insets::new(0., 20., 0., 0.));
@@ -142,7 +144,7 @@ fn flex_paint_rect_overflow() {
                 .expand(),
             1.0,
         )
-        .with_child(
+        .with_flex_child(
             ModularWidget::new(())
                 .layout_fn(|_, ctx, bc, _, _| {
                     ctx.set_paint_insets(Insets::new(0., 0., 0., 20.));
@@ -151,7 +153,7 @@ fn flex_paint_rect_overflow() {
                 .expand(),
             1.0,
         )
-        .with_child(
+        .with_flex_child(
             ModularWidget::new(())
                 .layout_fn(|_, ctx, bc, _, _| {
                     ctx.set_paint_insets(Insets::new(0., 0., 20., 0.));

@@ -76,6 +76,7 @@ pub(crate) struct WindowBuilder {
     title: String,
     menu: Option<Menu>,
     size: Size,
+    min_size: Option<Size>,
     resizable: bool,
     show_titlebar: bool,
 }
@@ -107,6 +108,7 @@ impl WindowBuilder {
             title: String::new(),
             menu: None,
             size: Size::new(500.0, 400.0),
+            min_size: None,
             resizable: true,
             show_titlebar: true,
         }
@@ -120,8 +122,12 @@ impl WindowBuilder {
         self.size = size;
     }
 
-    pub fn resizable(&mut self, resizable: bool) {
+    pub fn set_min_size(&mut self, size: Size) {
         // TODO: Use this in `self.build`
+        self.min_size = Some(size);
+    }
+
+    pub fn resizable(&mut self, resizable: bool) {
         self.resizable = resizable;
     }
 
@@ -141,10 +147,14 @@ impl WindowBuilder {
     pub fn build(self) -> Result<WindowHandle, Error> {
         assert_main_thread();
         unsafe {
-            let style_mask = NSWindowStyleMask::NSTitledWindowMask
+            let mut style_mask = NSWindowStyleMask::NSTitledWindowMask
                 | NSWindowStyleMask::NSClosableWindowMask
-                | NSWindowStyleMask::NSMiniaturizableWindowMask
-                | NSWindowStyleMask::NSResizableWindowMask;
+                | NSWindowStyleMask::NSMiniaturizableWindowMask;
+
+            if self.resizable {
+                style_mask |= NSWindowStyleMask::NSResizableWindowMask;
+            }
+
             let rect = NSRect::new(
                 NSPoint::new(0., 0.),
                 NSSize::new(self.size.width, self.size.height),

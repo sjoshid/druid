@@ -17,11 +17,11 @@
 use std::ops::{Index, IndexMut};
 use std::time::{Duration, Instant};
 
-use druid::widget::{Button, CrossAxisAlignment, Flex, Label, Slider, WidgetExt};
+use druid::widget::prelude::*;
+use druid::widget::{Button, Flex, Label, Slider};
 use druid::{
-    AppLauncher, BoxConstraints, Color, Data, Env, Event, EventCtx, LayoutCtx, Lens, LifeCycle,
-    LifeCycleCtx, LocalizedString, MouseButton, PaintCtx, Point, Rect, RenderContext, Size,
-    TimerToken, UpdateCtx, Widget, WindowDesc,
+    AppLauncher, Color, Data, Lens, LocalizedString, MouseButton, Point, Rect, TimerToken,
+    WidgetExt, WindowDesc,
 };
 use std::sync::Arc;
 
@@ -300,8 +300,8 @@ impl Widget<AppData> for GameOfLifeWidget {
         }
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &AppData, _env: &Env) {
-        let size: Size = paint_ctx.size();
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &AppData, _env: &Env) {
+        let size: Size = ctx.size();
         let w0 = size.width / GRID_SIZE as f64;
         let h0 = size.height / GRID_SIZE as f64;
         let cell_size = Size {
@@ -318,7 +318,7 @@ impl Widget<AppData> for GameOfLifeWidget {
                         y: h0 * col as f64,
                     };
                     let rect = Rect::from_origin_size(point, cell_size);
-                    paint_ctx.fill(rect, &self.color_scheme[pos]);
+                    ctx.fill(rect, &self.color_scheme[pos]);
                 }
             }
         }
@@ -357,7 +357,7 @@ fn blinker(top: GridPos) -> Option<[GridPos; 3]> {
 
 fn make_widget() -> impl Widget<AppData> {
     Flex::column()
-        .with_child(
+        .with_flex_child(
             GameOfLifeWidget {
                 timer_id: TimerToken::INVALID,
                 cell_size: Size {
@@ -373,7 +373,7 @@ fn make_widget() -> impl Widget<AppData> {
                 .with_child(
                     // a row with two buttons
                     Flex::row()
-                        .with_child(
+                        .with_flex_child(
                             // pause / resume button
                             Button::new(
                                 |data: &bool, _: &Env| match data {
@@ -383,14 +383,13 @@ fn make_widget() -> impl Widget<AppData> {
                                 |ctx, data: &mut bool, _: &Env| {
                                     *data = !*data;
                                     ctx.request_layout();
-                                    ctx.request_paint();
                                 },
                             )
                             .lens(AppData::paused)
                             .padding((5., 5.)),
                             1.0,
                         )
-                        .with_child(
+                        .with_flex_child(
                             // clear button
                             Button::new("Clear", |ctx, data: &mut Grid, _: &Env| {
                                 data.clear();
@@ -401,24 +400,18 @@ fn make_widget() -> impl Widget<AppData> {
                             1.0,
                         )
                         .padding(8.0),
-                    0.,
                 )
                 .with_child(
                     Flex::row()
                         .with_child(
                             Label::new(|data: &AppData, _env: &_| format!("{:.2}FPS", data.fps()))
                                 .padding(3.0),
-                            0.,
                         )
-                        .with_child(Slider::new().lens(AppData::speed).padding((0., 0.)), 1.)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_flex_child(Slider::new().expand_width().lens(AppData::speed), 1.)
                         .padding(8.0),
-                    0.,
                 )
                 .background(BG),
-            0.,
         )
-        .cross_axis_alignment(CrossAxisAlignment::Center)
 }
 
 fn main() {

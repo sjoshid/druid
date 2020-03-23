@@ -34,6 +34,7 @@ pub struct Image<T> {
     image_data: ImageData,
     phantom: PhantomData<T>,
     fill: FillStrat,
+    interpolation: InterpolationMode,
 }
 
 impl<T: Data> Image<T> {
@@ -45,6 +46,7 @@ impl<T: Data> Image<T> {
             image_data,
             phantom: Default::default(),
             fill: FillStrat::default(),
+            interpolation: InterpolationMode::Bilinear,
         }
     }
 
@@ -55,8 +57,19 @@ impl<T: Data> Image<T> {
     }
 
     /// Modify the widget's `FillStrat`.
-    pub fn set_fill(&mut self, newfil: FillStrat) {
+    pub fn set_fill_mode(&mut self, newfil: FillStrat) {
         self.fill = newfil;
+    }
+
+    /// A builder-style method for specifying the interpolation strategy.
+    pub fn interpolation_mode(mut self, interpolation: InterpolationMode) -> Self {
+        self.interpolation = interpolation;
+        self
+    }
+
+    /// Modify the widget's `InterpolationMode`.
+    pub fn set_interpolation_mode(&mut self, interpolation: InterpolationMode) {
+        self.interpolation = interpolation;
     }
 }
 
@@ -83,18 +96,19 @@ impl<T: Data> Widget<T> for Image<T> {
         }
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, _data: &T, _env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, _data: &T, _env: &Env) {
         let offset_matrix = self
             .fill
-            .affine_to_fill(paint_ctx.size(), self.image_data.get_size());
+            .affine_to_fill(ctx.size(), self.image_data.get_size());
 
         // The ImageData's to_piet function does not clip to the image's size
         // CairoRenderContext is very like druids but with some extra goodies like clip
         if self.fill != FillStrat::Contain {
-            let clip_rect = Rect::ZERO.with_size(paint_ctx.size());
-            paint_ctx.clip(clip_rect);
+            let clip_rect = Rect::ZERO.with_size(ctx.size());
+            ctx.clip(clip_rect);
         }
-        self.image_data.to_piet(offset_matrix, paint_ctx);
+        self.image_data
+            .to_piet(offset_matrix, ctx, self.interpolation);
     }
 }
 
@@ -104,6 +118,7 @@ pub struct ImageData {
     pixels: Vec<u8>,
     x_pixels: u32,
     y_pixels: u32,
+    format: ImageFormat,
 }
 
 impl ImageData {
@@ -113,17 +128,44 @@ impl ImageData {
             pixels: [].to_vec(),
             x_pixels: 0,
             y_pixels: 0,
+            format: ImageFormat::RgbaSeparate,
         }
     }
 
     /// Load an image from a DynamicImage from the image crate
     pub fn from_dynamic_image(image_data: image::DynamicImage) -> ImageData {
-        let rgb_image = image_data.to_rgba();
+        match image_data.color() {
+            image::ColorType::RGBA(_) | image::ColorType::BGRA(_) | image::ColorType::GrayA(_) => {
+                Self::from_dynamic_image_with_alpha(image_data)
+            }
+            image::ColorType::RGB(_)
+            | image::ColorType::Gray(_)
+            | image::ColorType::Palette(_)
+            | image::ColorType::BGR(_) => Self::from_dynamic_image_without_alpha(image_data),
+        }
+    }
+
+    /// Load an image from a DynamicImage with alpha
+    pub fn from_dynamic_image_with_alpha(image_data: image::DynamicImage) -> ImageData {
+        let rgba_image = image_data.to_rgba();
+        let sizeofimage = rgba_image.dimensions();
+        ImageData {
+            pixels: rgba_image.to_vec(),
+            x_pixels: sizeofimage.0,
+            y_pixels: sizeofimage.1,
+            format: ImageFormat::RgbaSeparate,
+        }
+    }
+
+    /// Load an image from a DynamicImage without alpha
+    pub fn from_dynamic_image_without_alpha(image_data: image::DynamicImage) -> ImageData {
+        let rgb_image = image_data.to_rgb();
         let sizeofimage = rgb_image.dimensions();
         ImageData {
             pixels: rgb_image.to_vec(),
             x_pixels: sizeofimage.0,
             y_pixels: sizeofimage.1,
+            format: ImageFormat::Rgb,
         }
     }
 
@@ -147,28 +189,20 @@ impl ImageData {
     }
 
     /// Convert ImageData into Piet draw instructions
-    fn to_piet(&self, offset_matrix: Affine, paint_ctx: &mut PaintCtx) {
-        paint_ctx
-            .with_save(|ctx| {
-                ctx.transform(offset_matrix);
-
-                let im = ctx
-                    .make_image(
-                        self.x_pixels as usize,
-                        self.y_pixels as usize,
-                        &self.pixels,
-                        ImageFormat::RgbaSeparate,
-                    )
-                    .unwrap();
-                let rec = Rect::from_origin_size(
-                    (0.0, 0.0),
-                    (self.x_pixels as f64, self.y_pixels as f64),
-                );
-                ctx.draw_image(&im, rec, InterpolationMode::Bilinear);
-
-                Ok(())
-            })
-            .unwrap();
+    fn to_piet(&self, offset_matrix: Affine, ctx: &mut PaintCtx, interpolation: InterpolationMode) {
+        ctx.with_save(|ctx| {
+            ctx.transform(offset_matrix);
+            let size = self.get_size();
+            let im = ctx
+                .make_image(
+                    size.width as usize,
+                    size.height as usize,
+                    &self.pixels,
+                    self.format,
+                )
+                .unwrap();
+            ctx.draw_image(&im, size.to_rect(), interpolation);
+        })
     }
 }
 
