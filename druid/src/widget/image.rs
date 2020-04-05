@@ -17,7 +17,6 @@
 
 use std::convert::AsRef;
 use std::error::Error;
-use std::marker::PhantomData;
 use std::path::Path;
 
 use image;
@@ -30,21 +29,19 @@ use crate::{
 };
 
 /// A widget that renders an Image
-pub struct Image<T> {
+pub struct Image {
     image_data: ImageData,
-    phantom: PhantomData<T>,
     fill: FillStrat,
     interpolation: InterpolationMode,
 }
 
-impl<T: Data> Image<T> {
+impl Image {
     /// Create an image drawing widget from `ImageData`.
     ///
     /// The Image will scale to fit its box constraints.
     pub fn new(image_data: ImageData) -> Self {
         Image {
             image_data,
-            phantom: Default::default(),
             fill: FillStrat::default(),
             interpolation: InterpolationMode::Bilinear,
         }
@@ -73,7 +70,7 @@ impl<T: Data> Image<T> {
     }
 }
 
-impl<T: Data> Widget<T> for Image<T> {
+impl<T: Data> Widget<T> for Image {
     fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut T, _env: &Env) {}
 
     fn lifecycle(&mut self, _ctx: &mut LifeCycleCtx, _event: &LifeCycle, _data: &T, _env: &Env) {}
@@ -134,14 +131,10 @@ impl ImageData {
 
     /// Load an image from a DynamicImage from the image crate
     pub fn from_dynamic_image(image_data: image::DynamicImage) -> ImageData {
-        match image_data.color() {
-            image::ColorType::RGBA(_) | image::ColorType::BGRA(_) | image::ColorType::GrayA(_) => {
-                Self::from_dynamic_image_with_alpha(image_data)
-            }
-            image::ColorType::RGB(_)
-            | image::ColorType::Gray(_)
-            | image::ColorType::Palette(_)
-            | image::ColorType::BGR(_) => Self::from_dynamic_image_without_alpha(image_data),
+        if has_alpha_channel(&image_data) {
+            Self::from_dynamic_image_with_alpha(image_data)
+        } else {
+            Self::from_dynamic_image_without_alpha(image_data)
         }
     }
 
@@ -203,6 +196,14 @@ impl ImageData {
                 .unwrap();
             ctx.draw_image(&im, size.to_rect(), interpolation);
         })
+    }
+}
+
+fn has_alpha_channel(image: &image::DynamicImage) -> bool {
+    use image::ColorType::*;
+    match image.color() {
+        La8 | Rgba8 | La16 | Rgba16 | Bgra8 => true,
+        _ => false,
     }
 }
 

@@ -54,7 +54,7 @@ pub struct EventCtx<'a> {
 /// specific lifecycle events; for instance [`register_child`]
 /// should only be called while handling [`LifeCycle::WidgetAdded`].
 ///
-/// [`lifecycle`]: widget/trait.Widget.html#tymethod.lifecycle
+/// [`lifecycle`]: trait.Widget.html#tymethod.lifecycle
 /// [`register_child`]: #method.register_child
 /// [`LifeCycle::WidgetAdded`]: enum.LifeCycle.html#variant.WidgetAdded
 pub struct LifeCycleCtx<'a> {
@@ -133,7 +133,7 @@ impl<'a> EventCtx<'a> {
 
     /// Request a [`paint`] pass.
     ///
-    /// [`paint`]: widget/trait.Widget.html#tymethod.paint
+    /// [`paint`]: trait.Widget.html#tymethod.paint
     pub fn request_paint(&mut self) {
         self.base_state.needs_inval = true;
     }
@@ -147,7 +147,7 @@ impl<'a> EventCtx<'a> {
     /// (such as if it would like to change the layout of children in
     /// response to some event) it must call this method.
     ///
-    /// [`layout`]: widget/trait.Widget.html#tymethod.layout
+    /// [`layout`]: trait.Widget.html#tymethod.layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
         self.base_state.needs_inval = true;
@@ -262,6 +262,13 @@ impl<'a> EventCtx<'a> {
         is_child || self.focus_widget == Some(self.widget_id())
     }
 
+    /// The (leaf) focus status of a widget. See [`has_focus`].
+    ///
+    /// [`has_focus`]: struct.EventCtx.html#method.has_focus
+    pub fn is_focused(&self) -> bool {
+        self.focus_widget == Some(self.widget_id())
+    }
+
     /// Request keyboard focus.
     ///
     /// See [`has_focus`] for more information.
@@ -327,7 +334,7 @@ impl<'a> EventCtx<'a> {
     /// Generally it will be the same as the size returned by the child widget's
     /// [`layout`] method.
     ///
-    /// [`layout`]: widget/trait.Widget.html#tymethod.layout
+    /// [`layout`]: trait.Widget.html#tymethod.layout
     pub fn size(&self) -> Size {
         self.base_state.size()
     }
@@ -339,7 +346,7 @@ impl<'a> EventCtx<'a> {
     /// the [`update`] method is called.
     ///
     /// [`Command`]: struct.Command.html
-    /// [`update`]: widget/trait.Widget.html#tymethod.update
+    /// [`update`]: trait.Widget.html#tymethod.update
     pub fn submit_command(
         &mut self,
         command: impl Into<Command>,
@@ -376,7 +383,7 @@ impl<'a> LifeCycleCtx<'a> {
 
     /// Request a [`paint`] pass.
     ///
-    /// [`paint`]: widget/trait.Widget.html#tymethod.paint
+    /// [`paint`]: trait.Widget.html#tymethod.paint
     pub fn request_paint(&mut self) {
         self.base_state.needs_inval = true;
     }
@@ -430,7 +437,7 @@ impl<'a> LifeCycleCtx<'a> {
     /// the [`update`] method is called.
     ///
     /// [`Command`]: struct.Command.html
-    /// [`update`]: widget/trait.Widget.html#tymethod.update
+    /// [`update`]: trait.Widget.html#tymethod.update
     pub fn submit_command(
         &mut self,
         command: impl Into<Command>,
@@ -553,10 +560,19 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
     /// Query the focus state of the widget.
     ///
     /// This is true only if this widget has focus.
+    pub fn is_focused(&self) -> bool {
+        self.focus_widget == Some(self.widget_id())
+    }
+
+    /// The focus status of a widget.
+    ///
+    /// See [`has_focus`](struct.EventCtx.html#method.has_focus).
     pub fn has_focus(&self) -> bool {
-        self.focus_widget
-            .map(|id| id == self.base_state.id)
-            .unwrap_or(false)
+        let is_child = self
+            .focus_widget
+            .map(|id| self.base_state.children.contains(&id))
+            .unwrap_or(false);
+        is_child || self.focus_widget == Some(self.widget_id())
     }
 
     /// Returns the currently visible [`Region`].

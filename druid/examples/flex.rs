@@ -123,8 +123,10 @@ impl Widget<AppState> for Rebuilder {
 
 fn make_control_row() -> impl Widget<AppState> {
     Flex::row()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
         .with_child(
             Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
                 .with_child(Label::new("Type:").padding(5.0))
                 .with_child(
                     RadioGroup::new(vec![("Row", FlexType::Row), ("Column", FlexType::Column)])
@@ -133,6 +135,7 @@ fn make_control_row() -> impl Widget<AppState> {
         )
         .with_child(
             Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
                 .with_child(Label::new("CrossAxis:").padding(5.0))
                 .with_child(
                     RadioGroup::new(vec![
@@ -145,6 +148,7 @@ fn make_control_row() -> impl Widget<AppState> {
         )
         .with_child(
             Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
                 .with_child(Label::new("MainAxis:").padding(5.0))
                 .with_child(
                     RadioGroup::new(vec![
@@ -161,6 +165,7 @@ fn make_control_row() -> impl Widget<AppState> {
         .with_child(make_spacer_select())
         .with_child(
             Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
                 .with_child(Label::new("Misc:").padding((0., 0., 0., 10.)))
                 .with_child(Checkbox::new("Debug layout").lens(Params::debug_layout))
                 .with_spacer(10.)
@@ -178,6 +183,7 @@ fn make_control_row() -> impl Widget<AppState> {
 
 fn make_spacer_select() -> impl Widget<Params> {
     Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
         .with_child(Label::new("Insert Spacers:").padding(5.0))
         .with_child(
             RadioGroup::new(vec![
@@ -228,11 +234,13 @@ fn build_widget(state: &Params) -> Box<dyn Widget<AppState>> {
     let mut flex = flex.with_child(TextBox::new().lens(DemoState::input_text));
     space_if_needed(&mut flex, state);
 
-    flex.add_child(Button::new("Clear", |_ctx, data: &mut DemoState, _env| {
-        data.input_text.clear();
-        data.enabled = false;
-        data.volume = 0.0;
-    }));
+    flex.add_child(
+        Button::new("Clear").on_click(|_ctx, data: &mut DemoState, _env| {
+            data.input_text.clear();
+            data.enabled = false;
+            data.volume = 0.0;
+        }),
+    );
 
     space_if_needed(&mut flex, state);
 
@@ -289,7 +297,6 @@ fn make_ui() -> impl Widget<AppState> {
         .with_spacer(20.)
         .with_flex_child(Rebuilder::new(), 1.0)
         .padding(10.0)
-        .debug_paint_layout()
 }
 
 fn main() -> Result<(), PlatformError> {

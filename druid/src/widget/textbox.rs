@@ -27,7 +27,10 @@ use crate::piet::{
 };
 use crate::theme;
 
-use crate::text::{movement, offset_for_delete_backwards, EditableText, Movement, Selection};
+use crate::text::{
+    movement, offset_for_delete_backwards, BasicTextInput, EditAction, EditableText, MouseAction,
+    Movement, Selection, TextInput,
+};
 
 const BORDER_WIDTH: f64 = 1.;
 const PADDING_TOP: f64 = 5.;
@@ -117,6 +120,25 @@ impl TextBox {
         self.selection.end
     }
 
+    fn do_edit_action(&mut self, edit_action: EditAction, text: &mut String) {
+        match edit_action {
+            EditAction::Insert(chars) | EditAction::Paste(chars) => self.insert(text, &chars),
+            EditAction::Backspace => self.delete_backward(text),
+            EditAction::Delete => self.delete_forward(text),
+            EditAction::Move(movement) => self.move_selection(movement, text, false),
+            EditAction::ModifySelection(movement) => self.move_selection(movement, text, true),
+            EditAction::SelectAll => self.selection.all(text),
+            EditAction::Click(action) => {
+                if action.mods.shift {
+                    self.selection.end = action.column;
+                } else {
+                    self.caret_to(text, action.column);
+                }
+            }
+            EditAction::Drag(action) => self.selection.end = action.column,
+        }
+    }
+
     /// Edit a selection using a `Movement`.
     fn move_selection(&mut self, mvmnt: Movement, text: &mut String, modify: bool) {
         // This movement function should ensure all movements are legit.
@@ -135,6 +157,18 @@ impl TextBox {
         } else {
             text.edit(self.selection.range(), "");
             self.caret_to(text, self.selection.min());
+        }
+    }
+
+    fn delete_forward(&mut self, text: &mut String) {
+        if self.selection.is_caret() {
+            // Never touch the characters before the cursor.
+            if text.next_grapheme_offset(self.cursor()).is_some() {
+                self.move_selection(Movement::Right, text, false);
+                self.delete_backward(text);
+            }
+        } else {
+            self.delete_backward(text);
         }
     }
 
@@ -194,29 +228,36 @@ impl TextBox {
 }
 
 impl Widget<String> for TextBox {
-    #[allow(clippy::cognitive_complexity)]
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut String, env: &Env) {
         // Guard against external changes in data?
         self.selection = self.selection.constrain_to(data);
 
         let mut text_layout = self.get_layout(&mut ctx.text(), &data, env);
+        let mut edit_action = None;
+
         match event {
             Event::MouseDown(mouse) => {
                 ctx.request_focus();
                 ctx.set_active(true);
-                let cursor_off = self.offset_for_point(mouse.pos, &text_layout);
-                if mouse.mods.shift {
-                    self.selection.end = cursor_off;
-                } else {
-                    self.caret_to(data, cursor_off);
-                }
+
+                let cursor_offset = self.offset_for_point(mouse.pos, &text_layout);
+                edit_action = Some(EditAction::Click(MouseAction {
+                    row: 0,
+                    column: cursor_offset,
+                    mods: mouse.mods,
+                }));
+
                 ctx.request_paint();
-                self.reset_cursor_blink(ctx);
             }
             Event::MouseMoved(mouse) => {
                 ctx.set_cursor(&Cursor::IBeam);
                 if ctx.is_active() {
-                    self.selection.end = self.offset_for_point(mouse.pos, &text_layout);
+                    let cursor_offset = self.offset_for_point(mouse.pos, &text_layout);
+                    edit_action = Some(EditAction::Drag(MouseAction {
+                        row: 0,
+                        column: cursor_offset,
+                        mods: mouse.mods,
+                    }));
                     ctx.request_paint();
                 }
             }
@@ -243,92 +284,54 @@ impl Widget<String> for TextBox {
                     Application::clipboard().put_string(text);
                 }
                 if !self.selection.is_caret() && cmd.selector == crate::commands::CUT {
-                    self.delete_backward(data);
+                    edit_action = Some(EditAction::Delete);
                 }
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.selector == RESET_BLINK => self.reset_cursor_blink(ctx),
             Event::Paste(ref item) => {
                 if let Some(string) = item.get_string() {
-                    self.insert(data, &string);
-                    self.reset_cursor_blink(ctx);
+                    edit_action = Some(EditAction::Paste(string));
+                    ctx.request_paint();
                 }
             }
-            //TODO: move this to a 'handle_key' function, remove the #allow above
             Event::KeyDown(key_event) => {
-                match key_event {
-                    // Select all (Ctrl+A || Cmd+A)
-                    k_e if (HotKey::new(SysMods::Cmd, "a")).matches(k_e) => {
-                        self.selection.all(data);
-                    }
-                    // Jump left (Ctrl+ArrowLeft || Cmd+ArrowLeft)
-                    k_e if (HotKey::new(SysMods::Cmd, KeyCode::ArrowLeft)).matches(k_e)
-                        || HotKey::new(None, KeyCode::Home).matches(k_e) =>
-                    {
-                        self.move_selection(Movement::LeftOfLine, data, false);
-                        self.reset_cursor_blink(ctx);
-                    }
-                    // Jump right (Ctrl+ArrowRight || Cmd+ArrowRight)
-                    k_e if (HotKey::new(SysMods::Cmd, KeyCode::ArrowRight)).matches(k_e)
-                        || HotKey::new(None, KeyCode::End).matches(k_e) =>
-                    {
-                        self.move_selection(Movement::RightOfLine, data, false);
-                        self.reset_cursor_blink(ctx);
-                    }
-                    // Select left (Shift+ArrowLeft)
-                    k_e if (HotKey::new(SysMods::Shift, KeyCode::ArrowLeft)).matches(k_e) => {
-                        self.move_selection(Movement::Left, data, true);
-                    }
-                    // Select right (Shift+ArrowRight)
-                    k_e if (HotKey::new(SysMods::Shift, KeyCode::ArrowRight)).matches(k_e) => {
-                        self.move_selection(Movement::Right, data, true);
-                    }
-                    // Move left (ArrowLeft)
-                    k_e if (HotKey::new(None, KeyCode::ArrowLeft)).matches(k_e) => {
-                        self.move_selection(Movement::Left, data, false);
-                        self.reset_cursor_blink(ctx);
-                    }
-                    // Move right (ArrowRight)
-                    k_e if (HotKey::new(None, KeyCode::ArrowRight)).matches(k_e) => {
-                        self.move_selection(Movement::Right, data, false);
-                        self.reset_cursor_blink(ctx);
-                    }
-                    // Backspace
-                    k_e if (HotKey::new(None, KeyCode::Backspace)).matches(k_e) => {
-                        self.delete_backward(data);
-                        self.reset_cursor_blink(ctx);
-                    }
-                    // Delete
-                    k_e if (HotKey::new(None, KeyCode::Delete)).matches(k_e) => {
-                        if self.selection.is_caret() {
-                            // Never touch the characters before the cursor.
-                            if data.next_grapheme_offset(self.cursor()).is_some() {
-                                self.move_selection(Movement::Right, data, false);
-                                self.delete_backward(data);
-                            }
-                        } else {
-                            self.delete_backward(data);
-                        }
-                        self.reset_cursor_blink(ctx);
-                    }
+                let event_handled = match key_event {
                     // Tab and shift+tab
-                    k_e if HotKey::new(None, KeyCode::Tab).matches(k_e) => ctx.focus_next(),
+                    k_e if HotKey::new(None, KeyCode::Tab).matches(k_e) => {
+                        ctx.focus_next();
+                        true
+                    }
                     k_e if HotKey::new(SysMods::Shift, KeyCode::Tab).matches(k_e) => {
-                        ctx.focus_prev()
+                        ctx.focus_prev();
+                        true
                     }
-                    // Actual typing
-                    k_e if k_e.key_code.is_printable() => {
-                        let incoming_text = k_e.text().unwrap_or("");
-                        self.insert(data, incoming_text);
-                        self.reset_cursor_blink(ctx);
-                    }
-                    _ => {}
+                    _ => false,
+                };
+
+                if !event_handled {
+                    edit_action = BasicTextInput::new().handle_event(key_event);
                 }
-                text_layout = self.get_layout(&mut ctx.text(), &data, env);
-                self.update_hscroll(&text_layout);
+
                 ctx.request_paint();
             }
             _ => (),
+        }
+
+        if let Some(edit_action) = edit_action {
+            let is_select_all = if let EditAction::SelectAll = &edit_action {
+                true
+            } else {
+                false
+            };
+
+            self.do_edit_action(edit_action, data);
+            self.reset_cursor_blink(ctx);
+
+            if !is_select_all {
+                text_layout = self.get_layout(&mut ctx.text(), &data, env);
+                self.update_hscroll(&text_layout);
+            }
         }
     }
 

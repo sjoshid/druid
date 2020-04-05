@@ -17,13 +17,15 @@ font editor.
 We have been doing periodic releases of druid on crates.io, but it is under
 active development and its API might change.
 
+For an overview of some key concepts, see the (work in progress) [druid book].
+
 ## Example
 
 Here's a simple counter example app.
 
 ```rust
-use druid::widget::{Align, Button, Flex, Label, Padding, WidgetExt};
-use druid::{AppLauncher, LocalizedString, Widget, WindowDesc};
+use druid::widget::{Button, Flex, Label};
+use druid::{AppLauncher, LocalizedString, Widget, WidgetExt, WindowDesc};
 
 fn main() {
     let main_window = WindowDesc::new(ui_builder);
@@ -41,12 +43,12 @@ fn ui_builder() -> impl Widget<u32> {
     let label = Label::new(text)
         .padding(5.0)
         .center();
-    let button = Button::new("increment", |_ctx, data, _env| *data += 1)
+    let button = Button::new("increment").on_click(|_ctx, data, _env| *data += 1)
         .padding(5.0);
 
     Flex::column()
-    .with_child(label, 1.0)
-    .with_child(button, 1.0)
+    .with_child(label)
+    .with_child(button)
 }
 ```
 
@@ -155,8 +157,7 @@ implement your own. You can also compose widgets into new widgets:
 fn build_widget() -> impl Widget<u32> {
     let mut col = Flex::column();
     for i in 0..30 {
-        let button = Button::new(format!("Button {}", i), Button::noop)
-            .padding(5.0);
+        let button = Button::new(format!("Button {}", i).padding(5.0);
         col.add_child(button, 0.0);
     }
     Scroll::new(col)
@@ -223,7 +224,7 @@ a lone dependency (it re-exports all the parts of druid-shell, piet, and kurbo
 that you'll need):
 
 ```toml
-druid = "0.4.0"
+druid = "0.5.0"
 ```
 
 Since druid is currently in fast-evolving state, you might prefer to drink from
@@ -284,11 +285,12 @@ active and friendly community.
 [Zulip chat instance]: https://xi.zulipchat.com
 [non-druid examples]: ./druid-shell/examples/shello.rs
 [crates.io]: https://crates.io/crates/druid
-[EventCtx]: https://docs.rs/druid/0.4.0/druid/struct.EventCtx.html
+[EventCtx]: https://docs.rs/druid/0.5.0/druid/struct.EventCtx.html
 [LifeCycleCtx]: https://docs.rs/druid/0.5.0/druid/struct.EventCtx.html
-[LayoutCtx]: https://docs.rs/druid/0.4.0/druid/struct.LayoutCtx.html
-[PaintCtx]: https://docs.rs/druid/0.4.0/druid/struct.PaintCtx.html
-[UpdateCtx]: https://docs.rs/druid/0.4.0/druid/struct.UpdateCtx.html
-[Widget trait]: https://docs.rs/druid/0.4.0/druid/trait.Widget.html
-[Data trait]: https://docs.rs/druid/0.4.0/druid/trait.Data.html
-[Lens datatype]: https://docs.rs/druid/0.4.0/druid/trait.Lens.html
+[LayoutCtx]: https://docs.rs/druid/0.5.0/druid/struct.LayoutCtx.html
+[PaintCtx]: https://docs.rs/druid/0.5.0/druid/struct.PaintCtx.html
+[UpdateCtx]: https://docs.rs/druid/0.5.0/druid/struct.UpdateCtx.html
+[Widget trait]: https://docs.rs/druid/0.5.0/druid/trait.Widget.html
+[Data trait]: https://docs.rs/druid/0.5.0/druid/trait.Data.html
+[Lens datatype]: https://docs.rs/druid/0.5.0/druid/trait.Lens.html
+[druid book]: https://xi-editor.io/druid/intro.html

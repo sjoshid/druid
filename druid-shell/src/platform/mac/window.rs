@@ -123,7 +123,6 @@ impl WindowBuilder {
     }
 
     pub fn set_min_size(&mut self, size: Size) {
-        // TODO: Use this in `self.build`
         self.min_size = Some(size);
     }
 
@@ -166,6 +165,11 @@ impl WindowBuilder {
                 NSBackingStoreBuffered,
                 NO,
             );
+
+            if let Some(min_size) = self.min_size {
+                let size = NSSize::new(min_size.width, min_size.height);
+                window.setContentMinSize_(size);
+            }
 
             window.cascadeTopLeftFromPoint_(NSPoint::new(20.0, 20.0));
             window.setTitle_(make_nsstring(&self.title));
@@ -689,8 +693,20 @@ impl WindowHandle {
     // TODO: Implement this
     pub fn show_titlebar(&self, _show_titlebar: bool) {}
 
-    // TODO: Implement this
-    pub fn resizable(&self, _resizable: bool) {}
+    pub fn resizable(&self, resizable: bool) {
+        unsafe {
+            let window: id = msg_send![*self.nsview.load(), window];
+            let mut style_mask: NSWindowStyleMask = window.styleMask();
+
+            if resizable {
+                style_mask |= NSWindowStyleMask::NSResizableWindowMask;
+            } else {
+                style_mask &= !NSWindowStyleMask::NSResizableWindowMask;
+            }
+
+            window.setStyleMask_(style_mask);
+        }
+    }
 
     pub fn set_menu(&self, menu: Menu) {
         unsafe {
