@@ -61,9 +61,17 @@ impl Switch {
 
         // off/on labels
         // TODO: use LocalizedString
-        let on_label_layout = ctx.text().new_text_layout(&font, "ON").build().unwrap();
+        let on_label_layout = ctx
+            .text()
+            .new_text_layout(&font, "ON", std::f64::INFINITY)
+            .build()
+            .unwrap();
 
-        let off_label_layout = ctx.text().new_text_layout(&font, "OFF").build().unwrap();
+        let off_label_layout = ctx
+            .text()
+            .new_text_layout(&font, "OFF", std::f64::INFINITY)
+            .build()
+            .unwrap();
 
         // position off/on labels
         let mut on_label_origin = UnitPoint::LEFT.resolve(Rect::from_origin_size(
@@ -134,7 +142,7 @@ impl Widget<bool> for Switch {
                 self.animation_in_progress = true;
                 ctx.request_anim_frame();
             }
-            Event::MouseMoved(mouse) => {
+            Event::MouseMove(mouse) => {
                 if ctx.is_active() {
                     self.knob_pos.x = mouse.pos.x.min(on_pos).max(off_pos);
                     self.knob_dragged = true;

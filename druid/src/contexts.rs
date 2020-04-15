@@ -26,6 +26,7 @@ use crate::{
     Affine, Command, Cursor, Insets, Rect, Size, Target, Text, TimerToken, WidgetId, WindowHandle,
     WindowId,
 };
+use std::collections::HashMap;
 
 /// A mutable context provided to event handling methods of widgets.
 ///
@@ -46,6 +47,8 @@ pub struct EventCtx<'a> {
     pub(crate) had_active: bool,
     pub(crate) is_handled: bool,
     pub(crate) is_root: bool,
+    /// Map of TimerTokens and WidgetIds that requested them.
+    pub(crate) timers: &'a HashMap<TimerToken, WidgetId>,
 }
 
 /// A mutable context provided to the [`lifecycle`] method on widgets.
@@ -173,11 +176,11 @@ impl<'a> EventCtx<'a> {
     /// only has the effect of the last one (ie no need to worry about
     /// flashing).
     ///
-    /// This method is expected to be called mostly from the [`MouseMoved`]
+    /// This method is expected to be called mostly from the [`MouseMove`]
     /// event handler, but can also be called in response to other events,
     /// for example pressing a key to change the behavior of a widget.
     ///
-    /// [`MouseMoved`]: enum.Event.html#variant.MouseDown
+    /// [`MouseMove`]: enum.Event.html#variant.MouseMove
     pub fn set_cursor(&mut self, cursor: &Cursor) {
         *self.cursor = Some(cursor.clone());
     }
@@ -240,49 +243,67 @@ impl<'a> EventCtx<'a> {
 
     /// The focus status of a widget.
     ///
+    /// Returns `true` if this specific widget is focused.
+    /// To check if any descendants are focused use [`has_focus`].
+    ///
     /// Focus means that the widget receives keyboard events.
     ///
     /// A widget can request focus using the [`request_focus`] method.
-    /// This will generally result in a separate event propagation of
-    /// a `FocusChanged` method, including sending `false` to the previous
-    /// widget that held focus.
+    /// It's also possible to register for automatic focus via [`register_for_focus`].
     ///
-    /// Only one leaf widget at a time has focus. However, in a container
-    /// hierarchy, all ancestors of that leaf widget are also invoked with
-    /// `FocusChanged(true)`.
+    /// If a widget gains or loses focus it will get a [`LifeCycle::FocusChanged`] event.
     ///
-    /// Discussion question: is "is_focused" a better name?
+    /// Only one widget at a time is focused. However due to the way events are routed,
+    /// all ancestors of that widget will also receive keyboard events.
     ///
     /// [`request_focus`]: struct.EventCtx.html#method.request_focus
-    pub fn has_focus(&self) -> bool {
-        let is_child = self
-            .focus_widget
-            .map(|id| self.base_state.children.contains(&id))
-            .unwrap_or(false);
-        is_child || self.focus_widget == Some(self.widget_id())
-    }
-
-    /// The (leaf) focus status of a widget. See [`has_focus`].
-    ///
+    /// [`register_for_focus`]: struct.LifeCycleCtx.html#method.register_for_focus
+    /// [`LifeCycle::FocusChanged`]: enum.LifeCycle.html#variant.FocusChanged
     /// [`has_focus`]: struct.EventCtx.html#method.has_focus
     pub fn is_focused(&self) -> bool {
         self.focus_widget == Some(self.widget_id())
     }
 
+    /// The (tree) focus status of a widget.
+    ///
+    /// Returns `true` if either this specific widget or any one of its descendants is focused.
+    /// To check if only this specific widget is focused use [`is_focused`].
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
+    pub fn has_focus(&self) -> bool {
+        // The bloom filter we're checking can return false positives.
+        let is_child = self
+            .focus_widget
+            .map(|id| self.base_state.children.may_contain(&id))
+            .unwrap_or(false);
+        is_child || self.focus_widget == Some(self.widget_id())
+    }
+
     /// Request keyboard focus.
     ///
-    /// See [`has_focus`] for more information.
+    /// Calling this when the widget is already focused does nothing.
     ///
-    /// [`has_focus`]: struct.EventCtx.html#method.has_focus
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn request_focus(&mut self) {
-        self.base_state.request_focus = Some(FocusChange::Focus(self.widget_id()));
+        let id = self.widget_id();
+        if self.focus_widget != Some(id) {
+            self.base_state.request_focus = Some(FocusChange::Focus(id));
+        }
     }
 
     /// Transfer focus to the next focusable widget.
     ///
     /// This should only be called by a widget that currently has focus.
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn focus_next(&mut self) {
-        if self.focus_widget == Some(self.widget_id()) {
+        if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Next);
         } else {
             log::warn!("focus_next can only be called by the currently focused widget");
@@ -292,8 +313,12 @@ impl<'a> EventCtx<'a> {
     /// Transfer focus to the previous focusable widget.
     ///
     /// This should only be called by a widget that currently has focus.
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn focus_prev(&mut self) {
-        if self.focus_widget == Some(self.widget_id()) {
+        if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Previous);
         } else {
             log::warn!("focus_prev can only be called by the currently focused widget");
@@ -303,8 +328,12 @@ impl<'a> EventCtx<'a> {
     /// Give up focus.
     ///
     /// This should only be called by a widget that currently has focus.
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn resign_focus(&mut self) {
-        if self.focus_widget == Some(self.widget_id()) {
+        if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Resign);
         } else {
             log::warn!("resign_focus can only be called by the currently focused widget");
@@ -323,7 +352,13 @@ impl<'a> EventCtx<'a> {
     /// request with the event.
     pub fn request_timer(&mut self, deadline: Instant) -> TimerToken {
         self.base_state.request_timer = true;
-        self.window.request_timer(deadline)
+        let timer_token = self.window.request_timer(deadline);
+        self.base_state.add_timer(timer_token);
+        timer_token
+    }
+
+    pub fn remove_timer(&mut self, timer_token: TimerToken) {
+        self.base_state.remove_timer(timer_token);
     }
 
     /// The layout size.
@@ -414,6 +449,13 @@ impl<'a> LifeCycleCtx<'a> {
     }
 
     /// Register this widget to be eligile to accept focus automatically.
+    ///
+    /// This should only be called in response to a [`LifeCycle::WidgetAdded`] event.
+    ///
+    /// See [`EventCtx::is_focused`] for more information about focus.
+    ///
+    /// [`LifeCycle::WidgetAdded`]: enum.Lifecycle.html#variant.WidgetAdded
+    /// [`EventCtx::is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn register_for_focus(&mut self) {
         self.base_state.focus_chain.push(self.widget_id());
     }
@@ -557,20 +599,33 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
         self.base_state.size()
     }
 
-    /// Query the focus state of the widget.
+    /// The focus status of a widget.
     ///
-    /// This is true only if this widget has focus.
+    /// Returns `true` if this specific widget is focused.
+    /// To check if any descendants are focused use [`has_focus`].
+    ///
+    /// See [`EventCtx::is_focused`] for more information about focus.
+    ///
+    /// [`has_focus`]: #method.has_focus
+    /// [`EventCtx::is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn is_focused(&self) -> bool {
         self.focus_widget == Some(self.widget_id())
     }
 
-    /// The focus status of a widget.
+    /// The (tree) focus status of a widget.
     ///
-    /// See [`has_focus`](struct.EventCtx.html#method.has_focus).
+    /// Returns `true` if either this specific widget or any one of its descendants is focused.
+    /// To check if only this specific widget is focused use [`is_focused`].
+    ///
+    /// See [`EventCtx::is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: #method.is_focused
+    /// [`EventCtx::is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn has_focus(&self) -> bool {
+        // The bloom filter we're checking can return false positives.
         let is_child = self
             .focus_widget
-            .map(|id| self.base_state.children.contains(&id))
+            .map(|id| self.base_state.children.may_contain(&id))
             .unwrap_or(false);
         is_child || self.focus_widget == Some(self.widget_id())
     }

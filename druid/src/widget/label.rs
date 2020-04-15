@@ -145,6 +145,11 @@ impl<T: Data> Label<T> {
         self.text = LabelText::Specific(text.into());
     }
 
+    /// Returns this label's current text.
+    pub fn text(&self) -> &str {
+        self.text.display_text()
+    }
+
     /// Set the text color.
     ///
     /// The argument can be either a `Color` or a [`Key<Color>`].
@@ -169,8 +174,11 @@ impl<T: Data> Label<T> {
 
         // TODO: caching of both the format and the layout
         let font = t.new_font_by_name(font_name, font_size).build().unwrap();
-        self.text
-            .with_display_text(|text| t.new_text_layout(&font, &text).build().unwrap())
+        self.text.with_display_text(|text| {
+            t.new_text_layout(&font, &text, std::f64::INFINITY)
+                .build()
+                .unwrap()
+        })
     }
 }
 
@@ -190,6 +198,15 @@ impl<T: Data> LabelText<T> {
             LabelText::Specific(s) => cb(s.as_str()),
             LabelText::Localized(s) => cb(s.localized_str()),
             LabelText::Dynamic(s) => cb(s.resolved.as_str()),
+        }
+    }
+
+    /// Return the current resolved text.
+    pub fn display_text(&self) -> &str {
+        match self {
+            LabelText::Specific(s) => s.as_str(),
+            LabelText::Localized(s) => s.localized_str(),
+            LabelText::Dynamic(s) => s.resolved.as_str(),
         }
     }
 

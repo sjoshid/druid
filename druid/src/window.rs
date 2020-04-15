@@ -14,18 +14,19 @@
 
 //! Management of multiple windows.
 
+use std::collections::HashMap;
 use std::mem;
 use std::time::Instant;
 
+use crate::core::{BaseState, CommandQueue, FocusChange};
 use crate::kurbo::{Insets, Point, Rect, Size};
 use crate::piet::{Piet, RenderContext};
 use crate::shell::{Counter, Cursor, WindowHandle};
-
-use crate::core::{BaseState, CommandQueue, FocusChange};
 use crate::win_handler::RUN_COMMANDS_TOKEN;
 use crate::{
     BoxConstraints, Command, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
-    LocalizedString, MenuDesc, PaintCtx, UpdateCtx, Widget, WidgetId, WidgetPod, WindowDesc,
+    LocalizedString, MenuDesc, PaintCtx, TimerToken, UpdateCtx, Widget, WidgetId, WidgetPod,
+    WindowDesc,
 };
 
 /// A unique identifier for a window.
@@ -43,6 +44,7 @@ pub struct Window<T> {
     pub(crate) last_anim: Option<Instant>,
     pub(crate) focus: Option<WidgetId>,
     pub(crate) handle: WindowHandle,
+    pub(crate) timers: HashMap<TimerToken, WidgetId>,
     // delegate?
 }
 
@@ -58,6 +60,7 @@ impl<T> Window<T> {
             last_anim: None,
             focus: None,
             handle,
+            timers: HashMap::new(),
         }
     }
 }
@@ -72,8 +75,12 @@ impl<T: Data> Window<T> {
         &self.root.state().focus_chain
     }
 
+    /// Returns `true` if the provided widget may be in this window,
+    /// but it may also be a false positive.
+    /// However when this returns `false` the widget is definitely not in this window.
     pub(crate) fn may_contain_widget(&self, widget_id: WidgetId) -> bool {
-        self.root.state().children.contains(&widget_id)
+        // The bloom filter we're checking can return false positives.
+        self.root.state().children.may_contain(&widget_id)
     }
 
     pub(crate) fn set_menu(&mut self, mut menu: MenuDesc<T>, data: &T, env: &Env) {
@@ -111,7 +118,7 @@ impl<T: Data> Window<T> {
         env: &Env,
     ) -> bool {
         let mut cursor = match event {
-            Event::MouseMoved(..) => Some(Cursor::Arrow),
+            Event::MouseMove(..) => Some(Cursor::Arrow),
             _ => None,
         };
 
@@ -141,6 +148,7 @@ impl<T: Data> Window<T> {
                 window: &self.handle,
                 window_id: self.id,
                 focus_widget: self.focus,
+                timers: &self.timers,
             };
 
             self.root.event(&mut ctx, &event, data, env);
@@ -164,6 +172,11 @@ impl<T: Data> Window<T> {
         // we need to send RouteWidgetAdded now, so that they are ready for update/layout.
         if base_state.children_changed {
             self.lifecycle(queue, &LifeCycle::RouteWidgetAdded, data, env);
+        }
+
+        //If at least one widget requested timer, collect those timers from widgets and add to window's timers map.
+        if base_state.request_timer {
+            self.timers.extend(base_state.timers);
         }
 
         is_handled

@@ -106,6 +106,7 @@ pub enum PresentStrategy {
     FlipRedirect,
 }
 
+#[derive(Clone)]
 pub struct WindowHandle {
     dwrite_factory: DwriteFactory,
     state: Weak<WindowState>,
@@ -272,18 +273,9 @@ impl WndState {
         self.captured_mouse_buttons |= 1 << (button as u32);
     }
 
-    fn exit_mouse_capture(&mut self, button: MouseButton) {
+    fn exit_mouse_capture(&mut self, button: MouseButton) -> bool {
         self.captured_mouse_buttons &= !(1 << (button as u32));
-        if self.captured_mouse_buttons == 0 {
-            unsafe {
-                if ReleaseCapture() == FALSE {
-                    warn!(
-                        "failed to release mouse capture: {}",
-                        Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
-                    );
-                }
-            }
-        }
+        self.captured_mouse_buttons == 0
     }
 }
 
@@ -625,6 +617,7 @@ impl WndProc for MyWndProc {
             WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MBUTTONDBLCLK
             | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP
             | WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
+                let mut should_release_capture = false;
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
                     let button = match msg {
@@ -666,11 +659,26 @@ impl WndProc for MyWndProc {
                         s.handler.mouse_down(&event);
                     } else {
                         s.handler.mouse_up(&event);
-                        s.exit_mouse_capture(button);
+                        should_release_capture = s.exit_mouse_capture(button);
                     }
                 } else {
                     self.log_dropped_msg(hwnd, msg, wparam, lparam);
                 }
+
+                // ReleaseCapture() is deferred: it needs to be called without having a mutable
+                // reference to the window state, because it will generate a reentrant
+                // WM_CAPTURECHANGED event.
+                if should_release_capture {
+                    unsafe {
+                        if ReleaseCapture() == FALSE {
+                            warn!(
+                                "failed to release mouse capture: {}",
+                                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                            );
+                        }
+                    }
+                }
+
                 Some(0)
             }
             XI_REQUEST_DESTROY => {
@@ -705,6 +713,8 @@ impl WndProc for MyWndProc {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
                     s.captured_mouse_buttons = 0;
+                } else {
+                    self.log_dropped_msg(hwnd, msg, wparam, lparam);
                 }
                 Some(0)
             }
@@ -740,15 +750,6 @@ impl WndProc for MyWndProc {
             }
             _ => None,
         }
-    }
-}
-
-// Note: there's a clone method in 0.3.0-alpha4. We work around
-// the lack in 0.1.2 by calling the low-level unsafe operations.
-fn clone_dwrite(dwrite: &DwriteFactory) -> DwriteFactory {
-    unsafe {
-        (*dwrite.get_raw()).AddRef();
-        DwriteFactory::from_raw(dwrite.get_raw())
     }
 }
 
@@ -803,7 +804,7 @@ impl WindowBuilder {
 
             let class_name = super::util::CLASS_NAME.to_wide();
             let dwrite_factory = DwriteFactory::new().unwrap();
-            let dw_clone = clone_dwrite(&dwrite_factory);
+            let dw_clone = dwrite_factory.clone();
             let wndproc = MyWndProc {
                 handle: Default::default(),
                 d2d_factory: D2DFactory::new().unwrap(),
@@ -1078,17 +1079,6 @@ impl Cursor {
             Cursor::NotAllowed => IDC_NO,
             Cursor::ResizeLeftRight => IDC_SIZEWE,
             Cursor::ResizeUpDown => IDC_SIZENS,
-        }
-    }
-}
-
-// TODO: when upgrading to directwrite 0.3, just derive Clone instead.
-impl Clone for WindowHandle {
-    fn clone(&self) -> WindowHandle {
-        let dwrite_factory = clone_dwrite(&self.dwrite_factory);
-        WindowHandle {
-            dwrite_factory,
-            state: self.state.clone(),
         }
     }
 }

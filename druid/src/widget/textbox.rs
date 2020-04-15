@@ -51,6 +51,9 @@ pub struct TextBox {
 }
 
 impl TextBox {
+    /// Perform an `EditAction`. The payload *must* be an `EditAction`.
+    pub const PERFORM_EDIT: Selector = Selector::new("druid-builtin.textbox.perform-edit");
+
     /// Create a new TextBox widget
     pub fn new() -> TextBox {
         Self {
@@ -86,7 +89,7 @@ impl TextBox {
             .unwrap();
 
         piet_text
-            .new_text_layout(&font, &text.to_string())
+            .new_text_layout(&font, &text.to_string(), std::f64::INFINITY)
             .build()
             .unwrap()
     }
@@ -249,7 +252,7 @@ impl Widget<String> for TextBox {
 
                 ctx.request_paint();
             }
-            Event::MouseMoved(mouse) => {
+            Event::MouseMove(mouse) => {
                 ctx.set_cursor(&Cursor::IBeam);
                 if ctx.is_active() {
                     let cursor_offset = self.offset_for_point(mouse.pos, &text_layout);
@@ -276,7 +279,7 @@ impl Widget<String> for TextBox {
                 }
             }
             Event::Command(ref cmd)
-                if ctx.has_focus()
+                if ctx.is_focused()
                     && (cmd.selector == crate::commands::COPY
                         || cmd.selector == crate::commands::CUT) =>
             {
@@ -289,6 +292,12 @@ impl Widget<String> for TextBox {
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.selector == RESET_BLINK => self.reset_cursor_blink(ctx),
+            Event::Command(cmd) if cmd.selector == TextBox::PERFORM_EDIT => {
+                let edit = cmd
+                    .get_object::<EditAction>()
+                    .expect("PERFORM_EDIT contained non-edit payload");
+                self.do_edit_action(edit.to_owned(), data);
+            }
             Event::Paste(ref item) => {
                 if let Some(string) = item.get_string() {
                     edit_action = Some(EditAction::Paste(string));
@@ -304,6 +313,12 @@ impl Widget<String> for TextBox {
                     }
                     k_e if HotKey::new(SysMods::Shift, KeyCode::Tab).matches(k_e) => {
                         ctx.focus_prev();
+                        true
+                    }
+                    k_e if HotKey::new(None, KeyCode::Return).matches(k_e) => {
+                        // 'enter' should do something, maybe?
+                        // but for now we are suppressing it, because we don't want
+                        // newlines.
                         true
                     }
                     _ => false,
@@ -381,9 +396,9 @@ impl Widget<String> for TextBox {
         let placeholder_color = env.get(theme::PLACEHOLDER_COLOR);
         let cursor_color = env.get(theme::CURSOR_COLOR);
 
-        let has_focus = ctx.has_focus();
+        let is_focused = ctx.is_focused();
 
-        let border_color = if has_focus {
+        let border_color = if is_focused {
             env.get(theme::PRIMARY_LIGHT)
         } else {
             env.get(theme::BORDER_DARK)
@@ -438,7 +453,7 @@ impl Widget<String> for TextBox {
             rc.draw_text(&text_layout, text_pos, color);
 
             // Paint the cursor if focused and there's no selection
-            if has_focus && self.cursor_on && self.selection.is_caret() {
+            if is_focused && self.cursor_on && self.selection.is_caret() {
                 let cursor_x = self.x_for_offset(&text_layout, self.cursor());
                 let xy = text_pos + Vec2::new(cursor_x, 2. - font_size);
                 let x2y2 = xy + Vec2::new(0., font_size + 2.);
