@@ -224,6 +224,11 @@ impl<T: Data> Window<T> {
             self.timers.extend(base_state.timers);
         }
 
+        if let Event::Timer(t) = event {
+            println!("Removed {:?}", t);
+            self.timers.remove(&t);
+        }
+
         is_handled
     }
 
