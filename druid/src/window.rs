@@ -219,14 +219,13 @@ impl<T: Data> Window<T> {
 
         self.post_event_processing(queue, data, env, false);
 
+        if let Event::Timer(t) = event {
+            self.timers.remove(&t);
+        }
+
         //If at least one widget requested timer, collect those timers from widgets and add to window's timers map.
         if base_state.request_timer {
             self.timers.extend(base_state.timers);
-        }
-
-        if let Event::Timer(t) = event {
-            println!("Removed {:?}", t);
-            self.timers.remove(&t);
         }
 
         is_handled
