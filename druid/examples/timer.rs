@@ -14,120 +14,116 @@
 
 //! An example of a timer.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use druid::kurbo::Line;
-use druid::{
-    AppLauncher, BoxConstraints, Color, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
-    LocalizedString, PaintCtx, RenderContext, Size, TimerToken, UpdateCtx, Widget, WindowDesc,
-};
-use druid::widget::{WidgetExt, Flex};
+use druid::widget::prelude::*;
+use druid::widget::BackgroundBrush;
+use druid::{AppLauncher, Color, LocalizedString, Point, Rect, TimerToken, WidgetPod, WindowDesc};
+
+static TIMER_INTERVAL: Duration = Duration::from_millis(10);
 
 struct TimerWidget {
     timer_id: TimerToken,
-    on: bool,
+    simple_box: WidgetPod<u32, SimpleBox>,
+    pos: Point,
 }
 
 impl TimerWidget {
-    fn new() -> TimerWidget {
-        TimerWidget {
-            timer_id: TimerToken::INVALID,
-            on: false,
+    /// Move the box towards the right, until it reaches the edge,
+    /// then reset it to the left but move it to another row.
+    fn adjust_box_pos(&mut self, container_size: Size) {
+        let box_size = self.simple_box.layout_rect().size();
+        self.pos.x += 2.;
+        if self.pos.x + box_size.width > container_size.width {
+            self.pos.x = 0.;
+            self.pos.y += box_size.height;
+            if self.pos.y + box_size.height > container_size.height {
+                self.pos.y = 0.;
+            }
         }
     }
 }
 
 impl Widget<u32> for TimerWidget {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut u32, _env: &Env) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut u32, env: &Env) {
         match event {
-            Event::MouseDown(_) => {
-                self.on = !self.on;
-                ctx.request_paint();
-                let deadline = Instant::now() + Duration::from_millis(500);
-                self.timer_id = ctx.request_timer(deadline);
+            Event::WindowConnected => {
+                // Start the timer when the application launches
+                self.timer_id = ctx.request_timer(TIMER_INTERVAL);
             }
             Event::Timer(id) => {
                 if *id == self.timer_id {
-                    self.on = !self.on;
-                    ctx.request_paint();
-                    println!("Received/triggering by id: {:?}", ctx.widget_id());
-                    let deadline = Instant::now() + Duration::from_millis(2000);
-                    self.timer_id = ctx.request_timer(deadline);
-                } else {
-                    println!("Ignored by id: {:?}", ctx.widget_id());
+                    self.adjust_box_pos(ctx.size());
+                    ctx.request_layout();
+                    self.timer_id = ctx.request_timer(TIMER_INTERVAL);
                 }
             }
             _ => (),
         }
+        self.simple_box.event(ctx, event, data, env);
     }
 
-    fn lifecycle(&mut self, _ctx: &mut LifeCycleCtx, _event: &LifeCycle, _data: &u32, _env: &Env) {}
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &u32, env: &Env) {
+        self.simple_box.lifecycle(ctx, event, data, env);
+    }
+
+    fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &u32, data: &u32, env: &Env) {
+        self.simple_box.update(ctx, data, env);
+    }
+
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &u32, env: &Env) -> Size {
+        let size = self.simple_box.layout(ctx, &bc.loosen(), data, env);
+        let rect = Rect::from_origin_size(self.pos, size);
+        self.simple_box.set_layout_rect(ctx, data, env, rect);
+        bc.constrain((500.0, 500.0))
+    }
+
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &u32, env: &Env) {
+        self.simple_box.paint_with_offset(ctx, data, env);
+    }
+}
+
+struct SimpleBox;
+
+impl Widget<u32> for SimpleBox {
+    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, _data: &mut u32, _env: &Env) {}
+
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, _data: &u32, _env: &Env) {
+        if let LifeCycle::HotChanged(_) = event {
+            ctx.request_paint();
+        }
+    }
 
     fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &u32, _data: &u32, _env: &Env) {}
 
     fn layout(
         &mut self,
-        _layout_ctx: &mut LayoutCtx,
+        _ctx: &mut LayoutCtx,
         bc: &BoxConstraints,
         _data: &u32,
         _env: &Env,
     ) -> Size {
-        bc.constrain((100.0, 100.0))
+        bc.constrain((50.0, 50.0))
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, _data: &u32, _env: &Env) {
-        if self.on {
-            paint_ctx.stroke(Line::new((10.0, 10.0), (10.0, 50.0)), &Color::WHITE, 1.0);
-        }
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &u32, env: &Env) {
+        let mut background = if ctx.is_hot() {
+            BackgroundBrush::Color(Color::rgb8(200, 55, 55))
+        } else {
+            BackgroundBrush::Color(Color::rgb8(30, 210, 170))
+        };
+        background.paint(ctx, data, env);
     }
 }
 
-fn build_widget() -> impl Widget<u32> {
-    let t1 = TimerWidget::new().debug_widget();
-    let t2 = TimerWidget::new().debug_widget();
-    let t3 = TimerWidget::new().debug_widget();
-    let t4 = TimerWidget::new().debug_widget();
-    //let label = Label::new(|data: &String, _env: &_| format!("value: {}", data));
-
-    let column1 = Flex::column()
-        .with_child(t1, 1.0)
-        .with_child(t2, 1.0)
-        .with_child(t3, 1.0)
-        .with_child(t4, 1.0);
-
-    let t5 = TimerWidget::new().debug_widget();
-    let t6 = TimerWidget::new().debug_widget();
-    let t7 = TimerWidget::new().debug_widget();
-    let t8 = TimerWidget::new().debug_widget();
-    //let label = Label::new(|data: &String, _env: &_| format!("value: {}", data));
-
-    let column2 = Flex::column()
-        .with_child(t5, 1.0)
-        .with_child(t6, 1.0)
-        .with_child(t7, 1.0)
-        .with_child(t8, 1.0);
-
-    let t9 = TimerWidget::new().debug_widget();
-    let t10 = TimerWidget::new().debug_widget();
-    let t11 = TimerWidget::new().debug_widget();
-    let t12 = TimerWidget::new().debug_widget();
-    //let label = Label::new(|data: &String, _env: &_| format!("value: {}", data));
-
-    let column3 = Flex::column()
-        .with_child(t9, 1.0)
-        .with_child(t10, 1.0)
-        .with_child(t11, 1.0)
-        .with_child(t12, 1.0);
-
-    let root = Flex::row().with_child(column1, 1.0).with_child(column2, 1.0)
-        .with_child(column3, 1.0);
-
-    root
-}
-
-fn main() {
-    let window = WindowDesc::new(build_widget)
-    .title(LocalizedString::new("timer-demo-window-title").with_placeholder("Tick Tock"));
+pub fn main() {
+    let window = WindowDesc::new(|| TimerWidget {
+        timer_id: TimerToken::INVALID,
+        simple_box: WidgetPod::new(SimpleBox),
+        pos: Point::ZERO,
+    })
+    .with_min_size((200., 200.))
+    .title(LocalizedString::new("timer-demo-window-title").with_placeholder("Look at it go!"));
 
     AppLauncher::with_window(window)
         .use_simple_logger()

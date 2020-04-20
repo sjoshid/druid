@@ -81,6 +81,31 @@ impl<T: Data> Label<T> {
         }
     }
 
+    /// Construct a new dynamic label.
+    ///
+    /// The contents of this label are generated from the data using a closure.
+    ///
+    /// This is provided as a convenience; a closure can also be passed to [`new`],
+    /// but due to limitations of the implementation of that method, the types in
+    /// the closure need to be annotated, which is not true for this method.
+    ///
+    /// # Examples
+    ///
+    /// The following are equivalent.
+    ///
+    /// ```
+    /// use druid::Env;
+    /// use druid::widget::Label;
+    /// let button1: Label<u32> = Label::new(|data: &u32, _: &Env| format!("total is {}", data));
+    /// let button2: Label<u32> = Label::dynamic(|data, _| format!("total is {}", data));
+    /// ```
+    ///
+    /// [`new`]: #method.new
+    pub fn dynamic(text: impl Fn(&T, &Env) -> String + 'static) -> Self {
+        let text: LabelText<T> = text.into();
+        Label::new(text)
+    }
+
     /// Set text alignment.
     #[deprecated(since = "0.5.0", note = "Use an Align widget instead")]
     pub fn text_align(self, _align: UnitPoint) -> Self {
@@ -92,7 +117,7 @@ impl<T: Data> Label<T> {
     /// The argument can be either a `Color` or a [`Key<Color>`].
     ///
     /// [`Key<Color>`]: struct.Key.html
-    pub fn text_color(mut self, color: impl Into<KeyOrValue<Color>>) -> Self {
+    pub fn with_text_color(mut self, color: impl Into<KeyOrValue<Color>>) -> Self {
         self.color = color.into();
         self
     }
@@ -102,9 +127,27 @@ impl<T: Data> Label<T> {
     /// The argument can be either an `f64` or a [`Key<f64>`].
     ///
     /// [`Key<f64>`]: struct.Key.html
-    pub fn text_size(mut self, size: impl Into<KeyOrValue<f64>>) -> Self {
+    pub fn with_text_size(mut self, size: impl Into<KeyOrValue<f64>>) -> Self {
         self.size = size.into();
         self
+    }
+
+    /// Set a new text.
+    ///
+    /// Takes an already resolved string as input.
+    ///
+    /// If you're looking for full [`LabelText`] support,
+    /// then you need to create a new [`Label`].
+    ///
+    /// [`Label`]: #method.new
+    /// [`LabelText`]: enum.LabelText.html
+    pub fn set_text(&mut self, text: impl Into<String>) {
+        self.text = LabelText::Specific(text.into());
+    }
+
+    /// Returns this label's current text.
+    pub fn text(&self) -> &str {
+        self.text.display_text()
     }
 
     /// Set the text color.
@@ -131,8 +174,11 @@ impl<T: Data> Label<T> {
 
         // TODO: caching of both the format and the layout
         let font = t.new_font_by_name(font_name, font_size).build().unwrap();
-        self.text
-            .with_display_text(|text| t.new_text_layout(&font, &text).build().unwrap())
+        self.text.with_display_text(|text| {
+            t.new_text_layout(&font, &text, std::f64::INFINITY)
+                .build()
+                .unwrap()
+        })
     }
 }
 
@@ -152,6 +198,15 @@ impl<T: Data> LabelText<T> {
             LabelText::Specific(s) => cb(s.as_str()),
             LabelText::Localized(s) => cb(s.localized_str()),
             LabelText::Dynamic(s) => cb(s.resolved.as_str()),
+        }
+    }
+
+    /// Return the current resolved text.
+    pub fn display_text(&self) -> &str {
+        match self {
+            LabelText::Specific(s) => s.as_str(),
+            LabelText::Localized(s) => s.localized_str(),
+            LabelText::Dynamic(s) => s.resolved.as_str(),
         }
     }
 
@@ -180,7 +235,6 @@ impl<T: Data> Widget<T> for Label<T> {
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
         if !old_data.same(data) && self.text.resolve(data, env) {
             ctx.request_layout();
-            ctx.request_paint();
         }
     }
 
@@ -201,16 +255,16 @@ impl<T: Data> Widget<T> for Label<T> {
         ))
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, _data: &T, env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, _data: &T, env: &Env) {
         let font_size = self.size.resolve(env);
-        let text_layout = self.get_layout(paint_ctx.text(), env);
+        let text_layout = self.get_layout(ctx.text(), env);
         let line_height = font_size * LINE_HEIGHT_FACTOR;
 
         // Find the origin for the text
         let origin = Point::new(LABEL_X_PADDING, line_height * BASELINE_GUESS_FACTOR);
         let color = self.color.resolve(env);
 
-        paint_ctx.draw_text(&text_layout, origin, &color);
+        ctx.draw_text(&text_layout, origin, &color);
     }
 }
 

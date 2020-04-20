@@ -33,6 +33,7 @@ use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
 use winapi::shared::winerror::*;
 use winapi::um::d2d1::*;
+use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::unknwnbase::*;
 use winapi::um::winnt::*;
 use winapi::um::winuser::*;
@@ -68,13 +69,13 @@ extern "system" {
 /// Builder abstraction for creating new windows.
 pub struct WindowBuilder {
     handler: Option<Box<dyn WinHandler>>,
-    dwStyle: DWORD,
     title: String,
     menu: Option<Menu>,
     present_strategy: PresentStrategy,
     resizable: bool,
     show_titlebar: bool,
     size: Size,
+    min_size: Option<Size>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -105,6 +106,7 @@ pub enum PresentStrategy {
     FlipRedirect,
 }
 
+#[derive(Clone)]
 pub struct WindowHandle {
     dwrite_factory: DwriteFactory,
     state: Weak<WindowState>,
@@ -160,12 +162,19 @@ struct WndState {
     render_target: Option<DeviceContext>,
     dcomp_state: Option<DCompState>,
     dpi: f32,
+    min_size: Option<Size>,
     /// The `KeyCode` of the last `WM_KEYDOWN` event. We stash this so we can
     /// include it when handling `WM_CHAR` events.
     stashed_key_code: KeyCode,
     /// The `char` of the last `WM_CHAR` event, if there has not already been
     /// a `WM_KEYUP` event.
     stashed_char: Option<char>,
+    // Stores a bit mask of all mouse buttons that are currently holding mouse
+    // capture. When the first mouse button is down on our window we enter
+    // capture, and we hold it until the last mouse button is up.
+    captured_mouse_buttons: u32,
+    // Is this window the topmost window under the mouse cursor
+    has_mouse_focus: bool,
     //TODO: track surrogate orphan
 }
 
@@ -222,6 +231,22 @@ fn get_mod_state() -> KeyModifiers {
     }
 }
 
+fn is_point_in_client_rect(hwnd: HWND, x: i32, y: i32) -> bool {
+    unsafe {
+        let mut client_rect = mem::MaybeUninit::uninit();
+        if GetClientRect(hwnd, client_rect.as_mut_ptr()) == FALSE {
+            warn!(
+                "failed to get client rect: {}",
+                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+            );
+            return false;
+        }
+        let client_rect = client_rect.assume_init();
+        let mouse_point = POINT { x, y };
+        PtInRect(&client_rect, mouse_point) != FALSE
+    }
+}
+
 impl WndState {
     fn rebuild_render_target(&mut self, d2d: &D2DFactory) {
         unsafe {
@@ -255,6 +280,20 @@ impl WndState {
             let handle2 = handle.clone();
             handle.add_idle_callback(move |_| handle2.invalidate());
         }
+    }
+
+    fn enter_mouse_capture(&mut self, hwnd: HWND, button: MouseButton) {
+        if self.captured_mouse_buttons == 0 {
+            unsafe {
+                SetCapture(hwnd);
+            }
+        }
+        self.captured_mouse_buttons |= 1 << (button as u32);
+    }
+
+    fn exit_mouse_capture(&mut self, button: MouseButton) -> bool {
+        self.captured_mouse_buttons &= !(1 << (button as u32));
+        self.captured_mouse_buttons == 0
     }
 }
 
@@ -537,8 +576,12 @@ impl WndProc for MyWndProc {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
                     let delta_y = HIWORD(wparam as u32) as i16 as f64;
-                    let delta = Vec2::new(0.0, -delta_y);
                     let mods = get_mod_state();
+                    let delta = if mods.shift {
+                        Vec2::new(-delta_y, 0.)
+                    } else {
+                        Vec2::new(0., -delta_y)
+                    };
                     s.handler.wheel(delta, mods);
                 } else {
                     self.log_dropped_msg(hwnd, msg, wparam, lparam);
@@ -562,6 +605,30 @@ impl WndProc for MyWndProc {
                     let s = s.as_mut().unwrap();
                     let x = LOWORD(lparam as u32) as i16 as i32;
                     let y = HIWORD(lparam as u32) as i16 as i32;
+
+                    // When the mouse first enters the window client rect we need to register for the
+                    // WM_MOUSELEAVE event. Note that WM_MOUSEMOVE is also called even when the
+                    // window under the cursor changes without moving the mouse, for example when
+                    // our window is first opened under the mouse cursor.
+                    if !s.has_mouse_focus && is_point_in_client_rect(hwnd, x, y) {
+                        let mut desc = TRACKMOUSEEVENT {
+                            cbSize: mem::size_of::<TRACKMOUSEEVENT>() as DWORD,
+                            dwFlags: TME_LEAVE,
+                            hwndTrack: hwnd,
+                            dwHoverTime: HOVER_DEFAULT,
+                        };
+                        unsafe {
+                            if TrackMouseEvent(&mut desc) != FALSE {
+                                s.has_mouse_focus = true;
+                            } else {
+                                warn!(
+                                    "failed to TrackMouseEvent: {}",
+                                    Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                                );
+                            }
+                        }
+                    }
+
                     let (px, py) = self.handle.borrow().pixels_to_px_xy(x, y);
                     let pos = Point::new(px as f64, py as f64);
                     let mods = get_mod_state();
@@ -587,11 +654,22 @@ impl WndProc for MyWndProc {
                 }
                 Some(0)
             }
+            WM_MOUSELEAVE => {
+                if let Ok(mut s) = self.state.try_borrow_mut() {
+                    let s = s.as_mut().unwrap();
+                    s.has_mouse_focus = false;
+                    s.handler.mouse_leave();
+                } else {
+                    self.log_dropped_msg(hwnd, msg, wparam, lparam);
+                }
+                Some(0)
+            }
             // TODO: not clear where double-click processing should happen. Currently disabled
             // because CS_DBLCLKS is not set
             WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MBUTTONDBLCLK
             | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP
             | WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
+                let mut should_release_capture = false;
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
                     let button = match msg {
@@ -629,13 +707,30 @@ impl WndProc for MyWndProc {
                         count,
                     };
                     if count > 0 {
+                        s.enter_mouse_capture(hwnd, button);
                         s.handler.mouse_down(&event);
                     } else {
                         s.handler.mouse_up(&event);
+                        should_release_capture = s.exit_mouse_capture(button);
                     }
                 } else {
                     self.log_dropped_msg(hwnd, msg, wparam, lparam);
                 }
+
+                // ReleaseCapture() is deferred: it needs to be called without having a mutable
+                // reference to the window state, because it will generate a reentrant
+                // WM_CAPTURECHANGED event.
+                if should_release_capture {
+                    unsafe {
+                        if ReleaseCapture() == FALSE {
+                            warn!(
+                                "failed to release mouse capture: {}",
+                                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                            );
+                        }
+                    }
+                }
+
                 Some(0)
             }
             XI_REQUEST_DESTROY => {
@@ -666,6 +761,30 @@ impl WndProc for MyWndProc {
                 }
                 Some(1)
             }
+            WM_CAPTURECHANGED => {
+                if let Ok(mut s) = self.state.try_borrow_mut() {
+                    let s = s.as_mut().unwrap();
+                    s.captured_mouse_buttons = 0;
+                } else {
+                    self.log_dropped_msg(hwnd, msg, wparam, lparam);
+                }
+                Some(0)
+            }
+            WM_GETMINMAXINFO => {
+                let min_max_info = unsafe { &mut *(lparam as *mut MINMAXINFO) };
+                if let Ok(s) = self.state.try_borrow() {
+                    let s = s.as_ref().unwrap();
+                    if let Some(min_size) = s.min_size {
+                        min_max_info.ptMinTrackSize.x =
+                            (min_size.width * (f64::from(s.dpi) / 96.0)) as i32;
+                        min_max_info.ptMinTrackSize.y =
+                            (min_size.height * (f64::from(s.dpi) / 96.0)) as i32;
+                    }
+                } else {
+                    self.log_dropped_msg(hwnd, msg, wparam, lparam);
+                }
+                Some(0)
+            }
             XI_RUN_IDLE => {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
@@ -686,26 +805,17 @@ impl WndProc for MyWndProc {
     }
 }
 
-// Note: there's a clone method in 0.3.0-alpha4. We work around
-// the lack in 0.1.2 by calling the low-level unsafe operations.
-fn clone_dwrite(dwrite: &DwriteFactory) -> DwriteFactory {
-    unsafe {
-        (*dwrite.get_raw()).AddRef();
-        DwriteFactory::from_raw(dwrite.get_raw())
-    }
-}
-
 impl WindowBuilder {
     pub fn new() -> WindowBuilder {
         WindowBuilder {
             handler: None,
-            dwStyle: WS_OVERLAPPEDWINDOW,
             title: String::new(),
             menu: None,
             resizable: true,
             show_titlebar: true,
             present_strategy: Default::default(),
             size: Size::new(500.0, 400.0),
+            min_size: None,
         }
     }
 
@@ -718,8 +828,11 @@ impl WindowBuilder {
         self.size = size;
     }
 
+    pub fn set_min_size(&mut self, size: Size) {
+        self.min_size = Some(size);
+    }
+
     pub fn resizable(&mut self, resizable: bool) {
-        // TODO: Use this in `self.build`
         self.resizable = resizable;
     }
 
@@ -743,7 +856,7 @@ impl WindowBuilder {
 
             let class_name = super::util::CLASS_NAME.to_wide();
             let dwrite_factory = DwriteFactory::new().unwrap();
-            let dw_clone = clone_dwrite(&dwrite_factory);
+            let dw_clone = dwrite_factory.clone();
             let wndproc = MyWndProc {
                 handle: Default::default(),
                 d2d_factory: D2DFactory::new().unwrap(),
@@ -781,8 +894,11 @@ impl WindowBuilder {
                 render_target: None,
                 dcomp_state: None,
                 dpi,
+                min_size: self.min_size,
                 stashed_key_code: KeyCode::Unknown(0),
                 stashed_char: None,
+                captured_mouse_buttons: 0,
+                has_mouse_focus: false,
             };
             win.wndproc.connect(&handle, state);
 
@@ -796,6 +912,12 @@ impl WindowBuilder {
                 }
                 None => (0 as HMENU, None),
             };
+
+            let mut dwStyle = WS_OVERLAPPEDWINDOW;
+            if !self.resizable {
+                dwStyle &= !(WS_THICKFRAME | WS_MAXIMIZEBOX);
+            }
+
             let mut dwExStyle = 0;
             if self.present_strategy == PresentStrategy::Flip {
                 dwExStyle |= WS_EX_NOREDIRECTIONBITMAP;
@@ -804,7 +926,7 @@ impl WindowBuilder {
                 dwExStyle,
                 class_name.as_ptr(),
                 self.title.to_wide().as_ptr(),
-                self.dwStyle,
+                dwStyle,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 width,
@@ -1014,17 +1136,6 @@ impl Cursor {
     }
 }
 
-// TODO: when upgrading to directwrite 0.3, just derive Clone instead.
-impl Clone for WindowHandle {
-    fn clone(&self) -> WindowHandle {
-        let dwrite_factory = clone_dwrite(&self.dwrite_factory);
-        WindowHandle {
-            dwrite_factory,
-            state: self.state.clone(),
-        }
-    }
-}
-
 impl WindowHandle {
     pub fn show(&self) {
         if let Some(w) = self.state.upgrade() {
@@ -1075,8 +1186,34 @@ impl WindowHandle {
     // TODO: Implement this
     pub fn show_titlebar(&self, _show_titlebar: bool) {}
 
-    // TODO: Implement this
-    pub fn resizable(&self, _resizable: bool) {}
+    pub fn resizable(&self, resizable: bool) {
+        if let Some(w) = self.state.upgrade() {
+            let hwnd = w.hwnd.get();
+            unsafe {
+                let mut style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+                if style == 0 {
+                    warn!(
+                        "failed to get window style: {}",
+                        Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                    );
+                    return;
+                }
+
+                if resizable {
+                    style |= (WS_THICKFRAME | WS_MAXIMIZEBOX) as WindowLongPtr;
+                } else {
+                    style &= !(WS_THICKFRAME | WS_MAXIMIZEBOX) as WindowLongPtr;
+                }
+
+                if SetWindowLongPtrW(hwnd, GWL_STYLE, style) == 0 {
+                    warn!(
+                        "failed to set the window style: {}",
+                        Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                    );
+                }
+            }
+        }
+    }
 
     pub fn set_menu(&self, menu: Menu) {
         let accels = menu.accels();

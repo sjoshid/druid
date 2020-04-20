@@ -15,17 +15,16 @@
 //! The context types that are passed into various widget methods.
 
 use std::ops::{Deref, DerefMut};
-use std::time::Instant;
-
-use log;
+use std::time::Duration;
 
 use crate::core::{BaseState, CommandQueue, FocusChange};
 use crate::piet::Piet;
 use crate::piet::RenderContext;
 use crate::{
-    Affine, Command, Cursor, Insets, Rect, Size, Target, Text, TimerToken, WidgetId, WindowHandle,
-    WindowId,
+    Affine, Command, Cursor, Insets, Point, Rect, Size, Target, Text, TimerToken, WidgetId,
+    WindowHandle, WindowId,
 };
+use std::collections::HashMap;
 
 /// A mutable context provided to event handling methods of widgets.
 ///
@@ -43,9 +42,10 @@ pub struct EventCtx<'a> {
     pub(crate) window: &'a WindowHandle,
     pub(crate) base_state: &'a mut BaseState,
     pub(crate) focus_widget: Option<WidgetId>,
-    pub(crate) had_active: bool,
     pub(crate) is_handled: bool,
     pub(crate) is_root: bool,
+    /// Map of TimerTokens and WidgetIds that requested them.
+    pub(crate) timers: &'a HashMap<TimerToken, WidgetId>,
 }
 
 /// A mutable context provided to the [`lifecycle`] method on widgets.
@@ -54,7 +54,7 @@ pub struct EventCtx<'a> {
 /// specific lifecycle events; for instance [`register_child`]
 /// should only be called while handling [`LifeCycle::WidgetAdded`].
 ///
-/// [`lifecycle`]: widget/trait.Widget.html#tymethod.lifecycle
+/// [`lifecycle`]: trait.Widget.html#tymethod.lifecycle
 /// [`register_child`]: #method.register_child
 /// [`LifeCycle::WidgetAdded`]: enum.LifeCycle.html#variant.WidgetAdded
 pub struct LifeCycleCtx<'a> {
@@ -75,6 +75,7 @@ pub struct UpdateCtx<'a> {
     // invalidations, which would mean a structure very much like
     // `EventCtx` (and possibly using the same structure). But for
     // now keep it super-simple.
+    pub(crate) command_queue: &'a mut CommandQueue,
     pub(crate) window_id: WindowId,
     pub(crate) base_state: &'a mut BaseState,
 }
@@ -85,9 +86,11 @@ pub struct UpdateCtx<'a> {
 /// creating text layout objects, which are likely to be useful
 /// during widget layout.
 pub struct LayoutCtx<'a, 'b: 'a> {
+    pub(crate) command_queue: &'a mut CommandQueue,
+    pub(crate) base_state: &'a mut BaseState,
     pub(crate) text_factory: &'a mut Text<'b>,
-    pub(crate) paint_insets: Insets,
     pub(crate) window_id: WindowId,
+    pub(crate) mouse_pos: Option<Point>,
 }
 
 /// Z-order paint operations with transformations.
@@ -133,7 +136,7 @@ impl<'a> EventCtx<'a> {
 
     /// Request a [`paint`] pass.
     ///
-    /// [`paint`]: widget/trait.Widget.html#tymethod.paint
+    /// [`paint`]: trait.Widget.html#tymethod.paint
     pub fn request_paint(&mut self) {
         self.base_state.needs_inval = true;
     }
@@ -147,9 +150,10 @@ impl<'a> EventCtx<'a> {
     /// (such as if it would like to change the layout of children in
     /// response to some event) it must call this method.
     ///
-    /// [`layout`]: widget/trait.Widget.html#tymethod.layout
+    /// [`layout`]: trait.Widget.html#tymethod.layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
+        self.base_state.needs_inval = true;
     }
 
     /// Indicate that your children have changed.
@@ -157,6 +161,8 @@ impl<'a> EventCtx<'a> {
     /// Widgets must call this method after adding a new child.
     pub fn children_changed(&mut self) {
         self.base_state.children_changed = true;
+        self.base_state.needs_layout = true;
+        self.base_state.needs_inval = true;
     }
 
     /// Get an object which can create text layouts.
@@ -172,11 +178,11 @@ impl<'a> EventCtx<'a> {
     /// only has the effect of the last one (ie no need to worry about
     /// flashing).
     ///
-    /// This method is expected to be called mostly from the [`MouseMoved`]
+    /// This method is expected to be called mostly from the [`MouseMove`]
     /// event handler, but can also be called in response to other events,
     /// for example pressing a key to change the behavior of a widget.
     ///
-    /// [`MouseMoved`]: enum.Event.html#variant.MouseDown
+    /// [`MouseMove`]: enum.Event.html#variant.MouseMove
     pub fn set_cursor(&mut self, cursor: &Cursor) {
         *self.cursor = Some(cursor.clone());
     }
@@ -239,42 +245,62 @@ impl<'a> EventCtx<'a> {
 
     /// The focus status of a widget.
     ///
+    /// Returns `true` if this specific widget is focused.
+    /// To check if any descendants are focused use [`has_focus`].
+    ///
     /// Focus means that the widget receives keyboard events.
     ///
     /// A widget can request focus using the [`request_focus`] method.
-    /// This will generally result in a separate event propagation of
-    /// a `FocusChanged` method, including sending `false` to the previous
-    /// widget that held focus.
+    /// It's also possible to register for automatic focus via [`register_for_focus`].
     ///
-    /// Only one leaf widget at a time has focus. However, in a container
-    /// hierarchy, all ancestors of that leaf widget are also invoked with
-    /// `FocusChanged(true)`.
+    /// If a widget gains or loses focus it will get a [`LifeCycle::FocusChanged`] event.
     ///
-    /// Discussion question: is "is_focused" a better name?
+    /// Only one widget at a time is focused. However due to the way events are routed,
+    /// all ancestors of that widget will also receive keyboard events.
     ///
     /// [`request_focus`]: struct.EventCtx.html#method.request_focus
+    /// [`register_for_focus`]: struct.LifeCycleCtx.html#method.register_for_focus
+    /// [`LifeCycle::FocusChanged`]: enum.LifeCycle.html#variant.FocusChanged
+    /// [`has_focus`]: struct.EventCtx.html#method.has_focus
+    pub fn is_focused(&self) -> bool {
+        self.focus_widget == Some(self.widget_id())
+    }
+
+    /// The (tree) focus status of a widget.
+    ///
+    /// Returns `true` if either this specific widget or any one of its descendants is focused.
+    /// To check if only this specific widget is focused use [`is_focused`].
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn has_focus(&self) -> bool {
-        let is_child = self
-            .focus_widget
-            .map(|id| self.base_state.children.contains(&id))
-            .unwrap_or(false);
-        is_child || self.focus_widget == Some(self.widget_id())
+        self.base_state.has_focus
     }
 
     /// Request keyboard focus.
     ///
-    /// See [`has_focus`] for more information.
+    /// Calling this when the widget is already focused does nothing.
     ///
-    /// [`has_focus`]: struct.EventCtx.html#method.has_focus
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn request_focus(&mut self) {
-        self.base_state.request_focus = Some(FocusChange::Focus(self.widget_id()));
+        let id = self.widget_id();
+        if self.focus_widget != Some(id) {
+            self.base_state.request_focus = Some(FocusChange::Focus(id));
+        }
     }
 
     /// Transfer focus to the next focusable widget.
     ///
     /// This should only be called by a widget that currently has focus.
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn focus_next(&mut self) {
-        if self.focus_widget == Some(self.widget_id()) {
+        if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Next);
         } else {
             log::warn!("focus_next can only be called by the currently focused widget");
@@ -284,8 +310,12 @@ impl<'a> EventCtx<'a> {
     /// Transfer focus to the previous focusable widget.
     ///
     /// This should only be called by a widget that currently has focus.
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn focus_prev(&mut self) {
-        if self.focus_widget == Some(self.widget_id()) {
+        if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Previous);
         } else {
             log::warn!("focus_prev can only be called by the currently focused widget");
@@ -295,8 +325,12 @@ impl<'a> EventCtx<'a> {
     /// Give up focus.
     ///
     /// This should only be called by a widget that currently has focus.
+    ///
+    /// See [`is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn resign_focus(&mut self) {
-        if self.focus_widget == Some(self.widget_id()) {
+        if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Resign);
         } else {
             log::warn!("resign_focus can only be called by the currently focused widget");
@@ -313,9 +347,11 @@ impl<'a> EventCtx<'a> {
     ///
     /// The return value is a token, which can be used to associate the
     /// request with the event.
-    pub fn request_timer(&mut self, deadline: Instant) -> TimerToken {
+    pub fn request_timer(&mut self, deadline: Duration) -> TimerToken {
         self.base_state.request_timer = true;
-        self.window.request_timer(deadline)
+        let timer_token = self.window.request_timer(deadline);
+        self.base_state.add_timer(timer_token);
+        timer_token
     }
 
     /// The layout size.
@@ -326,7 +362,7 @@ impl<'a> EventCtx<'a> {
     /// Generally it will be the same as the size returned by the child widget's
     /// [`layout`] method.
     ///
-    /// [`layout`]: widget/trait.Widget.html#tymethod.layout
+    /// [`layout`]: trait.Widget.html#tymethod.layout
     pub fn size(&self) -> Size {
         self.base_state.size()
     }
@@ -338,7 +374,7 @@ impl<'a> EventCtx<'a> {
     /// the [`update`] method is called.
     ///
     /// [`Command`]: struct.Command.html
-    /// [`update`]: widget/trait.Widget.html#tymethod.update
+    /// [`update`]: trait.Widget.html#tymethod.update
     pub fn submit_command(
         &mut self,
         command: impl Into<Command>,
@@ -357,14 +393,6 @@ impl<'a> EventCtx<'a> {
     pub fn widget_id(&self) -> WidgetId {
         self.base_state.id
     }
-
-    pub(crate) fn make_lifecycle_ctx(&mut self) -> LifeCycleCtx {
-        LifeCycleCtx {
-            command_queue: self.command_queue,
-            base_state: self.base_state,
-            window_id: self.window_id,
-        }
-    }
 }
 
 impl<'a> LifeCycleCtx<'a> {
@@ -375,7 +403,7 @@ impl<'a> LifeCycleCtx<'a> {
 
     /// Request a [`paint`] pass.
     ///
-    /// [`paint`]: widget/trait.Widget.html#tymethod.paint
+    /// [`paint`]: trait.Widget.html#tymethod.paint
     pub fn request_paint(&mut self) {
         self.base_state.needs_inval = true;
     }
@@ -387,6 +415,7 @@ impl<'a> LifeCycleCtx<'a> {
     /// [`EventCtx::request_layout`]: struct.EventCtx.html#method.request_layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
+        self.base_state.needs_inval = true;
     }
 
     /// Returns the current widget's `WidgetId`.
@@ -405,6 +434,13 @@ impl<'a> LifeCycleCtx<'a> {
     }
 
     /// Register this widget to be eligile to accept focus automatically.
+    ///
+    /// This should only be called in response to a [`LifeCycle::WidgetAdded`] event.
+    ///
+    /// See [`EventCtx::is_focused`] for more information about focus.
+    ///
+    /// [`LifeCycle::WidgetAdded`]: enum.Lifecycle.html#variant.WidgetAdded
+    /// [`EventCtx::is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn register_for_focus(&mut self) {
         self.base_state.focus_chain.push(self.widget_id());
     }
@@ -414,6 +450,8 @@ impl<'a> LifeCycleCtx<'a> {
     /// Widgets must call this method after adding a new child.
     pub fn children_changed(&mut self) {
         self.base_state.children_changed = true;
+        self.base_state.needs_layout = true;
+        self.base_state.needs_inval = true;
     }
 
     /// Request an animation frame.
@@ -428,7 +466,7 @@ impl<'a> LifeCycleCtx<'a> {
     /// the [`update`] method is called.
     ///
     /// [`Command`]: struct.Command.html
-    /// [`update`]: widget/trait.Widget.html#tymethod.update
+    /// [`update`]: trait.Widget.html#tymethod.update
     pub fn submit_command(
         &mut self,
         command: impl Into<Command>,
@@ -459,6 +497,7 @@ impl<'a> UpdateCtx<'a> {
     /// [`EventCtx::request_layout`]: struct.EventCtx.html#method.request_layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
+        self.base_state.needs_inval = true;
     }
 
     /// Indicate that your children have changed.
@@ -466,6 +505,25 @@ impl<'a> UpdateCtx<'a> {
     /// Widgets must call this method after adding a new child.
     pub fn children_changed(&mut self) {
         self.base_state.children_changed = true;
+        self.base_state.needs_layout = true;
+        self.base_state.needs_inval = true;
+    }
+
+    /// Submit a [`Command`] to be run after layout and paint finish.
+    ///
+    /// **Note:**
+    ///
+    /// Commands submited during an `update` call are handled *after* update,
+    /// layout, and paint have completed; this will trigger a new event cycle.
+    ///
+    /// [`Command`]: struct.Command.html
+    pub fn submit_command(
+        &mut self,
+        command: impl Into<Command>,
+        target: impl Into<Option<Target>>,
+    ) {
+        let target = target.into().unwrap_or_else(|| self.window_id.into());
+        self.command_queue.push_back((target, command.into()))
     }
 
     /// Get an object which can create text layouts.
@@ -513,7 +571,7 @@ impl<'a, 'b> LayoutCtx<'a, 'b> {
     /// [`Insets`]: struct.Insets.html
     /// [`WidgetPod::paint_insets`]: struct.WidgetPod.html#method.paint_insets
     pub fn set_paint_insets(&mut self, insets: impl Into<Insets>) {
-        self.paint_insets = insets.into().nonnegative();
+        self.base_state.paint_insets = insets.into().nonnegative();
     }
 }
 
@@ -547,13 +605,30 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
         self.base_state.size()
     }
 
-    /// Query the focus state of the widget.
+    /// The focus status of a widget.
     ///
-    /// This is true only if this widget has focus.
+    /// Returns `true` if this specific widget is focused.
+    /// To check if any descendants are focused use [`has_focus`].
+    ///
+    /// See [`EventCtx::is_focused`] for more information about focus.
+    ///
+    /// [`has_focus`]: #method.has_focus
+    /// [`EventCtx::is_focused`]: struct.EventCtx.html#method.is_focused
+    pub fn is_focused(&self) -> bool {
+        self.focus_widget == Some(self.widget_id())
+    }
+
+    /// The (tree) focus status of a widget.
+    ///
+    /// Returns `true` if either this specific widget or any one of its descendants is focused.
+    /// To check if only this specific widget is focused use [`is_focused`].
+    ///
+    /// See [`EventCtx::is_focused`] for more information about focus.
+    ///
+    /// [`is_focused`]: #method.is_focused
+    /// [`EventCtx::is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn has_focus(&self) -> bool {
-        self.focus_widget
-            .map(|id| id == self.base_state.id)
-            .unwrap_or(false)
+        self.base_state.has_focus
     }
 
     /// Returns the currently visible [`Region`].
@@ -580,6 +655,40 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
         };
         f(&mut child_ctx);
         self.z_ops.append(&mut child_ctx.z_ops);
+    }
+
+    /// Saves the current context, executes the closures, and restores the context.
+    ///
+    /// This is useful if you would like to transform or clip or otherwise
+    /// modify the drawing context but do not want that modification to
+    /// effect other widgets.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use druid::{Env, PaintCtx, RenderContext, theme};
+    /// # struct T;
+    /// # impl T {
+    /// fn paint(&mut self, ctx: &mut PaintCtx, _data: &T, env: &Env) {
+    ///     let clip_rect = ctx.size().to_rect().inset(5.0);
+    ///     ctx.with_save(|ctx| {
+    ///         ctx.clip(clip_rect);
+    ///         ctx.stroke(clip_rect, &env.get(theme::PRIMARY_DARK), 5.0);
+    ///     });
+    /// }
+    /// # }
+    /// ```
+    pub fn with_save(&mut self, f: impl FnOnce(&mut PaintCtx)) {
+        if let Err(e) = self.render_ctx.save() {
+            log::error!("Failed to save RenderContext: '{}'", e);
+            return;
+        }
+
+        f(self);
+
+        if let Err(e) = self.render_ctx.restore() {
+            log::error!("Failed to restore RenderContext: '{}'", e);
+        }
     }
 
     /// Allows to specify order for paint operations.

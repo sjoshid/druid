@@ -86,6 +86,7 @@ pub struct WindowBuilder {
     title: String,
     menu: Option<Menu>,
     size: Size,
+    min_size: Option<Size>,
     resizable: bool,
     show_titlebar: bool,
 }
@@ -116,6 +117,7 @@ impl WindowBuilder {
             title: String::new(),
             menu: None,
             size: Size::new(500.0, 400.0),
+            min_size: None,
             resizable: true,
             show_titlebar: true,
         }
@@ -127,6 +129,10 @@ impl WindowBuilder {
 
     pub fn set_size(&mut self, size: Size) {
         self.size = size;
+    }
+
+    pub fn set_min_size(&mut self, size: Size) {
+        self.min_size = Some(size);
     }
 
     pub fn resizable(&mut self, resizable: bool) {
@@ -224,6 +230,13 @@ impl WindowBuilder {
             Inhibit(true)
         });
 
+        if let Some(min_size) = self.min_size {
+            drawing_area.set_size_request(
+                (min_size.width * dpi_scale) as i32,
+                (min_size.height * dpi_scale) as i32,
+            );
+        }
+
         let last_size = Cell::new((0, 0));
 
         drawing_area.connect_draw(clone!(handle => move |widget, context| {
@@ -257,6 +270,8 @@ impl WindowBuilder {
                     if anim {
                         widget.queue_draw();
                     }
+                } else {
+                    log::warn!("Drawing was skipped because the handler was already borrowed");
                 }
 
             }
@@ -266,15 +281,18 @@ impl WindowBuilder {
 
         drawing_area.connect_button_press_event(clone!(handle => move |_widget, button| {
             if let Some(state) = handle.state.upgrade() {
-
-                state.handler.borrow_mut().mouse_down(
-                    &MouseEvent {
-                        pos: Point::from(button.get_position()),
-                        count: get_mouse_click_count(button.get_event_type()),
-                        mods: get_modifiers(button.get_state()),
-                        button: get_mouse_button(button.get_button()),
-                    },
-                );
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
+                    handler.mouse_down(
+                        &MouseEvent {
+                            pos: Point::from(button.get_position()),
+                            count: get_mouse_click_count(button.get_event_type()),
+                            mods: get_modifiers(button.get_state()),
+                            button: get_mouse_button(button.get_button()),
+                        },
+                    );
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
+                }
             }
 
             Inhibit(true)
@@ -282,15 +300,18 @@ impl WindowBuilder {
 
         drawing_area.connect_button_release_event(clone!(handle => move |_widget, button| {
             if let Some(state) = handle.state.upgrade() {
-
-                state.handler.borrow_mut().mouse_up(
-                    &MouseEvent {
-                        pos: Point::from(button.get_position()),
-                        mods: get_modifiers(button.get_state()),
-                        count: 0,
-                        button: get_mouse_button(button.get_button()),
-                    },
-                );
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
+                    handler.mouse_up(
+                        &MouseEvent {
+                            pos: Point::from(button.get_position()),
+                            mods: get_modifiers(button.get_state()),
+                            count: 0,
+                            button: get_mouse_button(button.get_button()),
+                        },
+                    );
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
+                }
             }
 
             Inhibit(true)
@@ -307,10 +328,11 @@ impl WindowBuilder {
                     button: get_mouse_button_from_modifiers(motion.get_state()),
                 };
 
-                state
-                    .handler
-                    .borrow_mut()
-                    .mouse_move(&mouse_event);
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
+                    handler.mouse_move(&mouse_event);
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
+                }
             }
 
             Inhibit(true)
@@ -327,10 +349,11 @@ impl WindowBuilder {
                     button: get_mouse_button_from_modifiers(crossing.get_state()),
                 };
 
-                state
-                    .handler
-                    .borrow_mut()
-                    .mouse_move(&mouse_event);
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
+                    handler.mouse_move(&mouse_event);
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
+                }
             }
 
             Inhibit(true)
@@ -338,38 +361,53 @@ impl WindowBuilder {
 
         drawing_area.connect_scroll_event(clone!(handle => move |_widget, scroll| {
             if let Some(state) = handle.state.upgrade() {
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
 
-                let modifiers = get_modifiers(scroll.get_state());
+                    let modifiers = get_modifiers(scroll.get_state());
 
-                // The magic "120"s are from Microsoft's documentation for WM_MOUSEWHEEL.
-                // They claim that one "tick" on a scroll wheel should be 120 units.
-                let mut handler = state.handler.borrow_mut();
-                match scroll.get_direction() {
-                    ScrollDirection::Up => {
-                        handler.wheel(Vec2::from((0.0, -120.0)), modifiers);
+                    // The magic "120"s are from Microsoft's documentation for WM_MOUSEWHEEL.
+                    // They claim that one "tick" on a scroll wheel should be 120 units.
+                    match scroll.get_direction() {
+                        ScrollDirection::Up => {
+                            if modifiers.shift {
+                                handler.wheel(Vec2::from((-120.0, 0.0)), modifiers);
+                            } else {
+                                handler.wheel(Vec2::from((0.0, -120.0)), modifiers);
+                            }
+                        }
+                        ScrollDirection::Down => {
+                            if modifiers.shift {
+                                handler.wheel(Vec2::from((120.0, 0.0)), modifiers);
+                            } else {
+                                handler.wheel(Vec2::from((0.0, 120.0)), modifiers);
+                            }
+                        }
+                        ScrollDirection::Left => {
+                            handler.wheel(Vec2::from((-120.0, 0.0)), modifiers);
+                        }
+                        ScrollDirection::Right => {
+                            handler.wheel(Vec2::from((120.0, 0.0)), modifiers);
+                        }
+                        ScrollDirection::Smooth => {
+                            //TODO: Look at how gtk's scroll containers implements it
+                            let (mut delta_x, mut delta_y) = scroll.get_delta();
+                            delta_x *= 120.;
+                            delta_y *= 120.;
+                            if modifiers.shift {
+                                delta_x += delta_y;
+                                delta_y = 0.;
+                            }
+                            handler.wheel(Vec2::from((delta_x, delta_y)), modifiers)
+                        }
+                        e => {
+                            eprintln!(
+                                "Warning: the Druid widget got some whacky scroll direction {:?}",
+                                e
+                            );
+                        }
                     }
-                    ScrollDirection::Down => {
-                        handler.wheel(Vec2::from((0.0, 120.0)), modifiers);
-                    }
-                    ScrollDirection::Left => {
-                        handler.wheel(Vec2::from((-120.0, 0.0)), modifiers);
-                    }
-                    ScrollDirection::Right => {
-                        handler.wheel(Vec2::from((120.0, 0.0)), modifiers);
-                    }
-                    ScrollDirection::Smooth => {
-                        //TODO: Look at how gtk's scroll containers implements it
-                        let (mut delta_x, mut delta_y) = scroll.get_delta();
-                        delta_x *= 120.;
-                        delta_y *= 120.;
-                        handler.wheel(Vec2::from((delta_x, delta_y)), modifiers)
-                    }
-                    e => {
-                        eprintln!(
-                            "Warning: the Druid widget got some whacky scroll direction {:?}",
-                            e
-                        );
-                    }
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
                 }
             }
 
@@ -384,8 +422,11 @@ impl WindowBuilder {
 
                 *current_keyval = Some(key.get_keyval());
 
-                let key_event = make_key_event(key, repeat);
-                state.handler.borrow_mut().key_down(key_event);
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
+                    handler.key_down(make_key_event(key, repeat));
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
+                }
             }
 
             Inhibit(true)
@@ -396,8 +437,11 @@ impl WindowBuilder {
 
                 *(state.current_keyval.borrow_mut()) = None;
 
-                let key_event = make_key_event(key, false);
-                state.handler.borrow_mut().key_up(key_event);
+                if let Ok(mut handler) = state.handler.try_borrow_mut() {
+                    handler.key_up(make_key_event(key, false));
+                } else {
+                    log::info!("GTK event was dropped because the handler was already borrowed");
+                }
             }
 
             Inhibit(true)
@@ -410,6 +454,11 @@ impl WindowBuilder {
         }));
 
         vbox.pack_end(&drawing_area, true, true, 0);
+        drawing_area.realize();
+        drawing_area
+            .get_window()
+            .expect("realize didn't create window")
+            .set_event_compression(false);
 
         win_state
             .handler
@@ -442,9 +491,7 @@ impl WindowHandle {
     /// Close the window.
     pub fn close(&self) {
         if let Some(state) = self.state.upgrade() {
-            with_application(|app| {
-                app.remove_window(&state.window);
-            });
+            state.window.close();
         }
     }
 
@@ -588,6 +635,7 @@ impl WindowHandle {
             window.add_accel_group(&accel_group);
 
             let menu = menu.into_gtk_menu(&self, &accel_group);
+            menu.set_property_attach_widget(Some(window));
             menu.show_all();
             menu.popup_easy(3, gtk::get_current_event_time());
         }
@@ -634,7 +682,7 @@ impl IdleHandle {
         if let Some(state) = self.state.upgrade() {
             if queue.is_empty() {
                 queue.push(IdleKind::Callback(Box::new(callback)));
-                threads_add_idle(move || run_idle(&state));
+                glib::idle_add(move || run_idle(&state));
             } else {
                 queue.push(IdleKind::Callback(Box::new(callback)));
             }
@@ -646,7 +694,7 @@ impl IdleHandle {
         if let Some(state) = self.state.upgrade() {
             if queue.is_empty() {
                 queue.push(IdleKind::Token(token));
-                threads_add_idle(move || run_idle(&state));
+                glib::idle_add(move || run_idle(&state));
             } else {
                 queue.push(IdleKind::Token(token));
             }
@@ -654,25 +702,7 @@ impl IdleHandle {
     }
 }
 
-// FIXME: delete when https://github.com/gtk-rs/gdk/issues/304 is resolved
-// this is currently broken in the gdk crate, because their codegen is inserting
-// assert_main_thread even though this function is explicitly threadsafe.
-pub fn threads_add_idle<P: Fn() -> bool + Send + Sync + 'static>(function: P) -> u32 {
-    use glib::translate::ToGlib;
-    let function_data: Box<P> = Box::new(function);
-    unsafe extern "C" fn function_func<P: Fn() -> bool + Send + Sync + 'static>(
-        user_data: glib_sys::gpointer,
-    ) -> glib_sys::gboolean {
-        let callback: &P = &*(user_data as *mut _);
-        let res = (*callback)();
-        res.to_glib()
-    }
-    let function = Some(function_func::<P> as _);
-    let super_callback0: Box<P> = function_data;
-    unsafe { gdk_sys::gdk_threads_add_idle(function, Box::into_raw(super_callback0) as *mut _) }
-}
-
-fn run_idle(state: &Arc<WindowState>) -> bool {
+fn run_idle(state: &Arc<WindowState>) -> glib::source::Continue {
     assert_main_thread();
     let mut handler = state.handler.borrow_mut();
 
@@ -684,7 +714,7 @@ fn run_idle(state: &Arc<WindowState>) -> bool {
             IdleKind::Token(it) => handler.idle(it),
         }
     }
-    false
+    glib::source::Continue(false)
 }
 
 fn make_gdk_cursor(cursor: &Cursor, gdk_window: &gdk::Window) -> Option<gdk::Cursor> {

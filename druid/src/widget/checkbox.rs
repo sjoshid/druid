@@ -17,10 +17,10 @@
 use crate::kurbo::{BezPath, Point, Rect, RoundedRect, Size};
 use crate::piet::{LineCap, LineJoin, LinearGradient, RenderContext, StrokeStyle, UnitPoint};
 use crate::theme;
-use crate::widget::{Label, LabelText, WidgetExt};
+use crate::widget::{Label, LabelText};
 use crate::{
     BoxConstraints, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, UpdateCtx,
-    Widget, WidgetPod,
+    Widget, WidgetExt, WidgetPod,
 };
 
 /// A checkbox that toggles a `bool`.
@@ -71,22 +71,20 @@ impl Widget<bool> for Checkbox {
         ctx.request_paint();
     }
 
-    fn layout(
-        &mut self,
-        layout_ctx: &mut LayoutCtx,
-        bc: &BoxConstraints,
-        data: &bool,
-        env: &Env,
-    ) -> Size {
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &bool, env: &Env) -> Size {
         bc.debug_check("Checkbox");
 
-        let label_size = self.child_label.layout(layout_ctx, &bc, data, env);
+        let label_size = self.child_label.layout(ctx, &bc, data, env);
         let padding = 8.0;
         let label_x_offset = env.get(theme::BASIC_WIDGET_HEIGHT) + padding;
         let origin = Point::new(label_x_offset, 0.0);
 
-        self.child_label
-            .set_layout_rect(Rect::from_origin_size(origin, label_size));
+        self.child_label.set_layout_rect(
+            ctx,
+            data,
+            env,
+            Rect::from_origin_size(origin, label_size),
+        );
 
         bc.constrain(Size::new(
             label_x_offset + label_size.width,
@@ -94,7 +92,7 @@ impl Widget<bool> for Checkbox {
         ))
     }
 
-    fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &bool, env: &Env) {
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &bool, env: &Env) {
         let size = env.get(theme::BASIC_WIDGET_HEIGHT);
 
         let rect =
@@ -110,15 +108,15 @@ impl Widget<bool> for Checkbox {
             ),
         );
 
-        paint_ctx.fill(rect, &background_gradient);
+        ctx.fill(rect, &background_gradient);
 
-        let border_color = if paint_ctx.is_hot() {
+        let border_color = if ctx.is_hot() {
             env.get(theme::BORDER_LIGHT)
         } else {
             env.get(theme::BORDER_DARK)
         };
 
-        paint_ctx.stroke(rect, &border_color, 1.);
+        ctx.stroke(rect, &border_color, 1.);
 
         if *data {
             // Paint the checkmark
@@ -131,10 +129,10 @@ impl Widget<bool> for Checkbox {
             style.set_line_cap(LineCap::Round);
             style.set_line_join(LineJoin::Round);
 
-            paint_ctx.stroke_styled(path, &env.get(theme::LABEL_COLOR), 2., &style);
+            ctx.stroke_styled(path, &env.get(theme::LABEL_COLOR), 2., &style);
         }
 
         // Paint the text label
-        self.child_label.paint_with_offset(paint_ctx, data, env);
+        self.child_label.paint_with_offset(ctx, data, env);
     }
 }

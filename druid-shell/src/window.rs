@@ -15,6 +15,7 @@
 //! Platform independent window types.
 
 use std::any::Any;
+use std::time::Duration;
 
 use crate::common_util::Counter;
 use crate::dialog::{FileDialogOptions, FileInfo};
@@ -157,8 +158,8 @@ impl WindowHandle {
     /// requiring precision.
     ///
     /// [`WinHandler::timer()`]: trait.WinHandler.html#tymethod.timer
-    pub fn request_timer(&self, deadline: std::time::Instant) -> TimerToken {
-        self.0.request_timer(deadline)
+    pub fn request_timer(&self, deadline: Duration) -> TimerToken {
+        self.0.request_timer(instant::Instant::now() + deadline)
     }
 
     /// Set the cursor icon.
@@ -221,6 +222,11 @@ impl WindowBuilder {
     /// Set the window's initial size.
     pub fn set_size(&mut self, size: Size) {
         self.0.set_size(size)
+    }
+
+    /// Set the window's initial size.
+    pub fn set_min_size(&mut self, size: Size) {
+        self.0.set_min_size(size)
     }
 
     /// Set whether the window should be resizable
@@ -327,6 +333,9 @@ pub trait WinHandler {
     /// Called on mouse button up.
     #[allow(unused_variables)]
     fn mouse_up(&mut self, event: &MouseEvent) {}
+
+    /// Called when the mouse cursor has left the application window
+    fn mouse_leave(&mut self) {}
 
     /// Called on timer event.
     ///
