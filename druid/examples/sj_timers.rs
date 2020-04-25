@@ -14,14 +14,14 @@
 
 //! An example of a timer.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use druid::kurbo::Line;
 use druid::{
     AppLauncher, BoxConstraints, Color, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
     LocalizedString, PaintCtx, RenderContext, Size, TimerToken, UpdateCtx, Widget, WindowDesc,
 };
-use druid::widget::{WidgetExt, Flex};
+use druid::kurbo::Line;
+use druid::widget::{Flex, WidgetExt};
 
 struct TimerWidget {
     timer_id: TimerToken,
@@ -43,7 +43,7 @@ impl Widget<u32> for TimerWidget {
             Event::MouseDown(_) => {
                 self.on = !self.on;
                 ctx.request_paint();
-                let deadline = Instant::now() + Duration::from_millis(500);
+                let deadline = Duration::from_millis(1000);
                 self.timer_id = ctx.request_timer(deadline);
             }
             Event::Timer(id) => {
@@ -51,7 +51,7 @@ impl Widget<u32> for TimerWidget {
                     self.on = !self.on;
                     ctx.request_paint();
                     println!("Received/triggering by id: {:?}", ctx.widget_id());
-                    let deadline = Instant::now() + Duration::from_millis(2000);
+                    let deadline = Duration::from_millis(1000);
                     self.timer_id = ctx.request_timer(deadline);
                 } else {
                     println!("Ignored by id: {:?}", ctx.widget_id());
