@@ -225,8 +225,8 @@ impl<T: Data> Window<T> {
 
         self.post_event_processing(queue, data, env, false);
 
-        if let Event::Timer(t) = event {
-            self.timers.remove(&t);
+        if let Event::Internal(InternalEvent::RouteTimer(token, _)) = event {
+            self.timers.remove(&token);
         }
 
         //If at least one widget requested timer, collect those timers from widgets and add to window's timers map.
