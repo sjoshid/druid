@@ -14,12 +14,12 @@
 
 use std::any::Any;
 
-use druid_shell::kurbo::{Line, Rect, Vec2};
+use druid_shell::kurbo::{Line, Rect};
 use druid_shell::piet::{Color, RenderContext};
 
 use druid_shell::{
-    Application, Cursor, FileDialogOptions, FileSpec, HotKey, KeyEvent, KeyModifiers, Menu,
-    MouseEvent, SysMods, TimerToken, WinHandler, WindowBuilder, WindowHandle,
+    Application, Cursor, FileDialogOptions, FileSpec, HotKey, KeyEvent, Menu, MouseEvent, SysMods,
+    TimerToken, WinHandler, WindowBuilder, WindowHandle,
 };
 
 const BG_COLOR: Color = Color::rgb8(0x27, 0x28, 0x22);
@@ -36,7 +36,7 @@ impl WinHandler for HelloState {
         self.handle = handle.clone();
     }
 
-    fn paint(&mut self, piet: &mut piet_common::Piet) -> bool {
+    fn paint(&mut self, piet: &mut piet_common::Piet, _: Rect) -> bool {
         let (width, height) = self.size;
         let rect = Rect::new(0.0, 0.0, width, height);
         piet.fill(rect, &BG_COLOR);
@@ -48,7 +48,7 @@ impl WinHandler for HelloState {
         match id {
             0x100 => {
                 self.handle.close();
-                Application::quit();
+                Application::global().quit()
             }
             0x101 => {
                 let options = FileDialogOptions::new().show_hidden().allowed_types(vec![
@@ -71,8 +71,8 @@ impl WinHandler for HelloState {
         false
     }
 
-    fn wheel(&mut self, delta: Vec2, mods: KeyModifiers) {
-        println!("mouse_wheel {:?} {:?}", delta, mods);
+    fn wheel(&mut self, event: &MouseEvent) {
+        println!("mouse_wheel {:?}", event);
     }
 
     fn mouse_move(&mut self, event: &MouseEvent) {
@@ -101,7 +101,7 @@ impl WinHandler for HelloState {
     }
 
     fn destroy(&mut self) {
-        Application::quit()
+        Application::global().quit()
     }
 
     fn as_any(&mut self) -> &mut dyn Any {
@@ -129,8 +129,8 @@ fn main() {
     menubar.add_dropdown(Menu::new(), "Application", true);
     menubar.add_dropdown(file_menu, "&File", true);
 
-    let mut app = Application::new(None);
-    let mut builder = WindowBuilder::new();
+    let app = Application::new().unwrap();
+    let mut builder = WindowBuilder::new(app.clone());
     builder.set_handler(Box::new(HelloState::default()));
     builder.set_title("Hello example");
     builder.set_menu(menubar);
@@ -138,5 +138,5 @@ fn main() {
     let window = builder.build().unwrap();
     window.show();
 
-    app.run();
+    app.run(None);
 }

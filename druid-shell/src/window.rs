@@ -17,11 +17,12 @@
 use std::any::Any;
 use std::time::Duration;
 
+use crate::application::Application;
 use crate::common_util::Counter;
 use crate::dialog::{FileDialogOptions, FileInfo};
 use crate::error::Error;
-use crate::keyboard::{KeyEvent, KeyModifiers};
-use crate::kurbo::{Point, Size, Vec2};
+use crate::keyboard::KeyEvent;
+use crate::kurbo::{Point, Rect, Size};
 use crate::menu::Menu;
 use crate::mouse::{Cursor, MouseEvent};
 use crate::platform::window as platform;
@@ -131,6 +132,11 @@ impl WindowHandle {
         self.0.invalidate()
     }
 
+    /// Request invalidation of a region of the window.
+    pub fn invalidate_rect(&self, rect: Rect) {
+        self.0.invalidate_rect(rect);
+    }
+
     /// Set the title for this menu.
     pub fn set_title(&self, title: &str) {
         self.0.set_title(title)
@@ -206,9 +212,13 @@ impl WindowHandle {
 pub struct WindowBuilder(platform::WindowBuilder);
 
 impl WindowBuilder {
-    /// Create a new `WindowBuilder`
-    pub fn new() -> WindowBuilder {
-        WindowBuilder(platform::WindowBuilder::new())
+    /// Create a new `WindowBuilder`.
+    ///
+    /// Takes the [`Application`] that this window is for.
+    ///
+    /// [`Application`]: struct.Application.html
+    pub fn new(app: Application) -> WindowBuilder {
+        WindowBuilder(platform::WindowBuilder::new(app.platform_app))
     }
 
     /// Set the [`WinHandler`]. This is the object that will receive
@@ -278,8 +288,9 @@ pub trait WinHandler {
 
     /// Request the handler to paint the window contents. Return value
     /// indicates whether window is animating, i.e. whether another paint
-    /// should be scheduled for the next animation frame.
-    fn paint(&mut self, piet: &mut piet_common::Piet) -> bool;
+    /// should be scheduled for the next animation frame. `invalid_rect` is the
+    /// rectangle that needs to be repainted.
+    fn paint(&mut self, piet: &mut piet_common::Piet, invalid_rect: Rect) -> bool;
 
     /// Called when the resources need to be rebuilt.
     ///
@@ -315,7 +326,7 @@ pub trait WinHandler {
     ///
     /// [WheelEvent]: https://w3c.github.io/uievents/#event-type-wheel
     #[allow(unused_variables)]
-    fn wheel(&mut self, delta: Vec2, mods: KeyModifiers) {}
+    fn wheel(&mut self, event: &MouseEvent) {}
 
     /// Called when a platform-defined zoom gesture occurs (such as pinching
     /// on the trackpad).

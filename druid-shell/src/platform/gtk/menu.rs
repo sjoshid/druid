@@ -32,7 +32,12 @@ pub struct Menu {
 
 #[derive(Debug)]
 enum MenuItem {
-    Entry(String, u32, Option<HotKey>),
+    Entry {
+        name: String,
+        id: u32,
+        key: Option<HotKey>,
+        enabled: bool,
+    },
     SubMenu(String, Menu),
     Separator,
 }
@@ -57,12 +62,16 @@ impl Menu {
         id: u32,
         text: &str,
         key: Option<&HotKey>,
-        _enabled: bool,
+        enabled: bool,
         _selected: bool,
     ) {
-        // TODO: implement enabled, selected item
-        self.items
-            .push(MenuItem::Entry(strip_access_key(text), id, key.cloned()));
+        // TODO: implement selected items
+        self.items.push(MenuItem::Entry {
+            name: strip_access_key(text),
+            id,
+            key: key.cloned(),
+            enabled,
+        });
     }
 
     pub fn add_separator(&mut self) {
@@ -77,8 +86,14 @@ impl Menu {
     ) {
         for item in self.items {
             match item {
-                MenuItem::Entry(name, id, key) => {
+                MenuItem::Entry {
+                    name,
+                    id,
+                    key,
+                    enabled,
+                } => {
                     let item = GtkMenuItem::new_with_label(&name);
+                    item.set_sensitive(enabled);
 
                     if let Some(k) = key {
                         register_accelerator(&item, accel_group, k);
@@ -127,7 +142,7 @@ impl Menu {
 }
 
 fn register_accelerator(item: &GtkMenuItem, accel_group: &AccelGroup, menu_key: HotKey) {
-    let wc = match menu_key.key {
+    let gdk_keyval = match menu_key.key {
         KeyCompare::Code(key_code) => key_code.into(),
         KeyCompare::Text(text) => text.chars().next().unwrap() as u32,
     };
@@ -135,7 +150,7 @@ fn register_accelerator(item: &GtkMenuItem, accel_group: &AccelGroup, menu_key: 
     item.add_accelerator(
         "activate",
         accel_group,
-        gdk::unicode_to_keyval(wc),
+        gdk_keyval,
         modifiers_to_gdk_modifier_type(menu_key.mods),
         gtk::AccelFlags::VISIBLE,
     );

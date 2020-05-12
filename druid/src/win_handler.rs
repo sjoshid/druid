@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use crate::kurbo::{Size, Vec2};
+use crate::kurbo::{Rect, Size};
 use crate::piet::Piet;
 use crate::shell::{
     Application, FileDialogOptions, IdleToken, MouseEvent, WinHandler, WindowHandle,
@@ -31,8 +31,8 @@ use crate::ext_event::ExtEventHost;
 use crate::menu::ContextMenu;
 use crate::window::Window;
 use crate::{
-    Command, Data, Env, Event, InternalEvent, KeyEvent, KeyModifiers, MenuDesc, Target, TimerToken,
-    WheelEvent, WindowDesc, WindowId,
+    Command, Data, Env, Event, InternalEvent, KeyEvent, MenuDesc, Target, TimerToken, WindowDesc,
+    WindowId,
 };
 
 use crate::command::sys as sys_cmd;
@@ -72,6 +72,7 @@ pub(crate) struct AppState<T> {
 }
 
 struct Inner<T> {
+    app: Application,
     delegate: Option<Box<dyn AppDelegate<T>>>,
     command_queue: CommandQueue,
     ext_event_host: ExtEventHost,
@@ -118,6 +119,10 @@ impl<T> Windows<T> {
     fn get_mut(&mut self, id: WindowId) -> Option<&mut Window<T>> {
         self.windows.get_mut(&id)
     }
+
+    fn count(&self) -> usize {
+        self.windows.len() + self.pending.len()
+    }
 }
 
 impl<T> AppHandler<T> {
@@ -128,12 +133,14 @@ impl<T> AppHandler<T> {
 
 impl<T> AppState<T> {
     pub(crate) fn new(
+        app: Application,
         data: T,
         env: Env,
         delegate: Option<Box<dyn AppDelegate<T>>>,
         ext_event_host: ExtEventHost,
     ) -> Self {
         let inner = Rc::new(RefCell::new(Inner {
+            app,
             delegate,
             command_queue: VecDeque::new(),
             root_menu: None,
@@ -144,6 +151,10 @@ impl<T> AppState<T> {
         }));
 
         AppState { inner }
+    }
+
+    pub(crate) fn app(&self) -> Application {
+        self.inner.borrow().app.clone()
     }
 }
 
@@ -193,7 +204,7 @@ impl<T: Data> Inner<T> {
         }
     }
 
-    fn delegate_cmd(&mut self, target: &Target, cmd: &Command) -> bool {
+    fn delegate_cmd(&mut self, target: Target, cmd: &Command) -> bool {
         self.with_delegate(|del, data, env, ctx| del.command(ctx, target, cmd, data, env))
             .unwrap_or(true)
     }
@@ -220,7 +231,11 @@ impl<T: Data> Inner<T> {
             if self.windows.windows.is_empty() {
                 // on mac we need to keep the menu around
                 self.root_menu = win.menu.take();
-                //FIXME: on windows we need to shutdown the app here?
+                // If there are even no pending windows, we quit the run loop.
+                if self.windows.count() == 0 {
+                    #[cfg(any(target_os = "windows", feature = "x11"))]
+                    self.app.quit();
+                }
             }
         }
 
@@ -262,6 +277,13 @@ impl<T: Data> Inner<T> {
         }
     }
 
+    /// Requests the platform to close all windows.
+    fn request_close_all_windows(&mut self) {
+        for win in self.windows.iter_mut() {
+            win.handle.close();
+        }
+    }
+
     fn show_window(&mut self, id: WindowId) {
         if let Some(win) = self.windows.get_mut(id) {
             win.handle.bring_to_front_and_focus();
@@ -269,17 +291,22 @@ impl<T: Data> Inner<T> {
     }
 
     /// Returns `true` if an animation frame was requested.
-    fn paint(&mut self, window_id: WindowId, piet: &mut Piet) -> bool {
+    fn paint(&mut self, window_id: WindowId, piet: &mut Piet, rect: Rect) -> bool {
         if let Some(win) = self.windows.get_mut(window_id) {
-            win.do_paint(piet, &mut self.command_queue, &self.data, &self.env);
-            win.wants_animation_frame()
+            win.do_paint(piet, rect, &mut self.command_queue, &self.data, &self.env);
+            if win.wants_animation_frame() {
+                win.handle.invalidate();
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
     }
 
     fn dispatch_cmd(&mut self, target: Target, cmd: Command) {
-        if !self.delegate_cmd(&target, &cmd) {
+        if !self.delegate_cmd(target, &cmd) {
             return;
         }
 
@@ -436,8 +463,8 @@ impl<T: Data> AppState<T> {
         result
     }
 
-    fn paint_window(&mut self, window_id: WindowId, piet: &mut Piet) -> bool {
-        self.inner.borrow_mut().paint(window_id, piet)
+    fn paint_window(&mut self, window_id: WindowId, piet: &mut Piet, rect: Rect) -> bool {
+        self.inner.borrow_mut().paint(window_id, piet, rect)
     }
 
     fn idle(&mut self, token: IdleToken) {
@@ -497,7 +524,7 @@ impl<T: Data> AppState<T> {
     fn handle_cmd(&mut self, target: Target, cmd: Command) {
         use Target as T;
         match (target, &cmd.selector) {
-            // these are handled the same no matter where they  come from
+            // these are handled the same no matter where they come from
             (_, &sys_cmd::QUIT_APP) => self.quit(),
             (_, &sys_cmd::HIDE_APPLICATION) => self.hide_app(),
             (_, &sys_cmd::HIDE_OTHERS) => self.hide_others(),
@@ -506,8 +533,9 @@ impl<T: Data> AppState<T> {
                     log::error!("failed to create window: '{}'", e);
                 }
             }
+            (_, &sys_cmd::CLOSE_ALL_WINDOWS) => self.request_close_all_windows(),
             // these should come from a window
-            // FIXME: we need to be  able to open a file without a window handle
+            // FIXME: we need to be able to open a file without a window handle
             (T::Window(id), &sys_cmd::SHOW_OPEN_PANEL) => self.show_open_panel(cmd, id),
             (T::Window(id), &sys_cmd::SHOW_SAVE_PANEL) => self.show_save_panel(cmd, id),
             (T::Window(id), &sys_cmd::CLOSE_WINDOW) => self.request_close_window(cmd, id),
@@ -569,6 +597,10 @@ impl<T: Data> AppState<T> {
         self.inner.borrow_mut().request_close_window(*id);
     }
 
+    fn request_close_all_windows(&mut self) {
+        self.inner.borrow_mut().request_close_all_windows();
+    }
+
     fn show_window(&mut self, cmd: Command) {
         let id: WindowId = *cmd
             .get_object()
@@ -577,22 +609,22 @@ impl<T: Data> AppState<T> {
     }
 
     fn do_paste(&mut self, window_id: WindowId) {
-        let event = Event::Paste(Application::clipboard());
+        let event = Event::Paste(self.inner.borrow().app.clipboard());
         self.inner.borrow_mut().do_window_event(window_id, event);
     }
 
     fn quit(&self) {
-        Application::quit()
+        self.inner.borrow().app.quit()
     }
 
     fn hide_app(&self) {
         #[cfg(target_os = "macos")]
-        Application::hide()
+        self.inner.borrow().app.hide()
     }
 
     fn hide_others(&mut self) {
         #[cfg(target_os = "macos")]
-        Application::hide_others()
+        self.inner.borrow().app.hide_others()
     }
 }
 
@@ -611,8 +643,8 @@ impl<T: Data> WinHandler for DruidHandler<T> {
         self.app_state.do_window_event(event, self.window_id);
     }
 
-    fn paint(&mut self, piet: &mut Piet) -> bool {
-        self.app_state.paint_window(self.window_id, piet)
+    fn paint(&mut self, piet: &mut Piet, rect: Rect) -> bool {
+        self.app_state.paint_window(self.window_id, piet, rect)
     }
 
     fn size(&mut self, width: u32, height: u32) {
@@ -655,9 +687,9 @@ impl<T: Data> WinHandler for DruidHandler<T> {
             .do_window_event(Event::KeyUp(event), self.window_id);
     }
 
-    fn wheel(&mut self, delta: Vec2, mods: KeyModifiers) {
-        let event = Event::Wheel(WheelEvent { delta, mods });
-        self.app_state.do_window_event(event, self.window_id);
+    fn wheel(&mut self, event: &MouseEvent) {
+        self.app_state
+            .do_window_event(Event::Wheel(event.clone().into()), self.window_id);
     }
 
     fn zoom(&mut self, delta: f64) {

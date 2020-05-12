@@ -16,15 +16,15 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use log;
-
 use crate::bloom::Bloom;
-use crate::kurbo::{Affine, Insets, Point, Rect, Shape, Size};
-use crate::piet::RenderContext;
+use crate::kurbo::{Affine, Insets, Point, Rect, Shape, Size, Vec2};
+use crate::piet::{
+    FontBuilder, PietTextLayout, RenderContext, Text, TextLayout, TextLayoutBuilder,
+};
 use crate::{
-    BoxConstraints, Command, Data, Env, Event, EventCtx, InternalEvent, InternalLifeCycle,
-    LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Target, TimerToken, UpdateCtx, Widget, WidgetId,
-    WindowId,
+    BoxConstraints, Color, Command, Data, Env, Event, EventCtx, InternalEvent, InternalLifeCycle,
+    LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Region, Target, TimerToken, UpdateCtx, Widget,
+    WidgetId, WindowId,
 };
 
 /// Our queue type
@@ -47,6 +47,8 @@ pub struct WidgetPod<T, W> {
     old_data: Option<T>,
     env: Option<Env>,
     inner: W,
+    // stashed layout so we don't recompute this when debugging
+    debug_widget_text: Option<PietTextLayout>,
 }
 
 /// Generic state for all widgets in the hierarchy.
@@ -76,11 +78,15 @@ pub(crate) struct BaseState {
     /// drop shadows or overflowing text.
     pub(crate) paint_insets: Insets,
 
+    // The region that needs to be repainted, relative to the widget's bounds.
+    pub(crate) invalid: Region,
+
+    // The part of this widget that is visible on the screen is offset by this
+    // much. This will be non-zero for widgets that are children of `Scroll`, or
+    // similar, and it is used for propagating invalid regions.
+    pub(crate) viewport_offset: Vec2,
+
     // TODO: consider using bitflags for the booleans.
-
-    // This should become an invalidation rect.
-    pub(crate) needs_inval: bool,
-
     pub(crate) is_hot: bool,
 
     pub(crate) is_active: bool,
@@ -139,6 +145,7 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
             old_data: None,
             env: None,
             inner,
+            debug_widget_text: None,
         }
     }
 
@@ -213,6 +220,28 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
     /// This will be same value as set by `set_layout_rect`.
     pub fn layout_rect(&self) -> Rect {
         self.state.layout_rect.unwrap_or_default()
+    }
+
+    /// Set the viewport offset.
+    ///
+    /// This is relevant only for children of a scroll view (or similar). It must
+    /// be set by the parent widget whenever it modifies the position of its child
+    /// while painting it and propagating events. As a rule of thumb, you need this
+    /// if and only if you `Affine::translate` the paint context before painting
+    /// your child. For an example, see the implentation of [`Scroll`].
+    ///
+    /// [`Scroll`]: widget/struct.Scroll.html
+    pub fn set_viewport_offset(&mut self, offset: Vec2) {
+        self.state.viewport_offset = offset;
+    }
+
+    /// The viewport offset.
+    ///
+    /// This will be the same value as set by [`set_viewport_offset`].
+    ///
+    /// [`set_viewport_offset`]: #method.viewport_offset
+    pub fn viewport_offset(&self) -> Vec2 {
+        self.state.viewport_offset
     }
 
     /// Get the widget's paint [`Rect`].
@@ -292,6 +321,10 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
                 window_id,
             };
             child.lifecycle(&mut child_ctx, &hot_changed_event, data, env);
+            // if hot changes and we're showing widget ids, always repaint
+            if env.get(Env::DEBUG_WIDGET_ID) {
+                child_ctx.request_paint();
+            }
             return true;
         }
         false
@@ -311,6 +344,11 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
     /// [`paint`]: trait.Widget.html#tymethod.paint
     /// [`paint_with_offset`]: #method.paint_with_offset
     pub fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        // we need to do this before we borrow from self
+        if env.get(Env::DEBUG_WIDGET_ID) {
+            self.make_widget_id_layout_if_needed(self.state.id, ctx, env);
+        }
+
         let mut inner_ctx = PaintCtx {
             render_ctx: ctx.render_ctx,
             window_id: ctx.window_id,
@@ -318,19 +356,22 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             region: ctx.region.clone(),
             base_state: &self.state,
             focus_widget: ctx.focus_widget,
+            depth: ctx.depth,
         };
         self.inner.paint(&mut inner_ctx, data, env);
-        ctx.z_ops.append(&mut inner_ctx.z_ops);
 
-        if env.get(Env::DEBUG_PAINT) {
-            const BORDER_WIDTH: f64 = 1.0;
-            let rect = inner_ctx.size().to_rect().inset(BORDER_WIDTH / -2.0);
-            let id = self.id().to_raw();
-            let color = env.get_debug_color(id);
-            inner_ctx.stroke(rect, &color, BORDER_WIDTH);
+        let debug_ids = inner_ctx.is_hot() && env.get(Env::DEBUG_WIDGET_ID);
+        if debug_ids {
+            // this also draws layout bounds
+            self.debug_paint_widget_ids(&mut inner_ctx, env);
         }
 
-        self.state.needs_inval = false;
+        if !debug_ids && env.get(Env::DEBUG_PAINT) {
+            self.debug_paint_layout_bounds(&mut inner_ctx, env);
+        }
+
+        ctx.z_ops.append(&mut inner_ctx.z_ops);
+        self.state.invalid = Region::EMPTY;
     }
 
     /// Paint the widget, translating it by the origin of its layout rectangle.
@@ -363,9 +404,61 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         ctx.with_save(|ctx| {
             let layout_origin = self.layout_rect().origin().to_vec2();
             ctx.transform(Affine::translate(layout_origin));
-            let visible = ctx.region().to_rect() - layout_origin;
+            let visible = ctx.region().to_rect().intersect(self.state.paint_rect()) - layout_origin;
             ctx.with_child_ctx(visible, |ctx| self.paint(ctx, data, env));
         });
+    }
+
+    fn make_widget_id_layout_if_needed(&mut self, id: WidgetId, ctx: &mut PaintCtx, env: &Env) {
+        if self.debug_widget_text.is_none() {
+            let font = ctx
+                .text()
+                .new_font_by_name(env.get(crate::theme::FONT_NAME), 10.0)
+                .build()
+                .unwrap();
+            let id_string = id.to_raw().to_string();
+            self.debug_widget_text = ctx
+                .text()
+                .new_text_layout(&font, &id_string, f64::INFINITY)
+                .build()
+                .ok();
+        }
+    }
+
+    fn debug_paint_widget_ids(&self, ctx: &mut PaintCtx, env: &Env) {
+        // we clone because we need to move it for paint_with_z_index
+        let text = self.debug_widget_text.clone();
+        if let Some(text) = text {
+            let text_size = Size::new(text.width(), 10.0);
+            let origin = ctx.size().to_vec2() - text_size.to_vec2();
+            let border_color = env.get_debug_color(ctx.widget_id().to_raw());
+            self.debug_paint_layout_bounds(ctx, env);
+
+            ctx.paint_with_z_index(ctx.depth(), move |ctx| {
+                let origin = Point::new(origin.x.max(0.0), origin.y.max(0.0));
+
+                let text_pos = origin + Vec2::new(0., 8.0);
+                let text_rect = Rect::from_origin_size(origin, text_size);
+
+                ctx.fill(text_rect, &border_color);
+                let (r, g, b, _) = border_color.as_rgba_u8();
+                let avg = (r as u32 + g as u32 + b as u32) / 3;
+                let text_color = if avg < 128 {
+                    Color::WHITE
+                } else {
+                    Color::BLACK
+                };
+                ctx.draw_text(&text, text_pos, &text_color);
+            })
+        }
+    }
+
+    fn debug_paint_layout_bounds(&self, ctx: &mut PaintCtx, env: &Env) {
+        const BORDER_WIDTH: f64 = 1.0;
+        let rect = ctx.size().to_rect().inset(BORDER_WIDTH / -2.0);
+        let id = self.id().to_raw();
+        let color = env.get_debug_color(id);
+        ctx.stroke(rect, &color, BORDER_WIDTH);
     }
 
     /// Compute layout of a widget.
@@ -427,15 +520,21 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         }
 
         // log if we seem not to be laid out when we should be
-        if !matches!(event, Event::WindowConnected | Event::WindowSize(_))
-            && self.state.layout_rect.is_none()
-        {
-            log::warn!(
-                "Widget '{}' received an event ({:?}) without having been laid out. \
-                This likely indicates a missed call to set_layout_rect.",
-                self.inner.type_name(),
-                event,
-            );
+        if self.state.layout_rect.is_none() {
+            match event {
+                Event::Internal(_) => (),
+                Event::Timer(_) => (),
+                Event::WindowConnected => (),
+                Event::WindowSize(_) => (),
+                _ => {
+                    log::warn!(
+                        "Widget '{}' received an event ({:?}) without having been laid out. \
+                        This likely indicates a missed call to set_layout_rect.",
+                        self.inner.type_name(),
+                        event,
+                    );
+                }
+            }
         }
 
         // TODO: factor as much logic as possible into monomorphic functions.
@@ -572,13 +671,16 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             }
             Event::Wheel(wheel_event) => {
                 recurse = had_active || child_ctx.base_state.is_hot;
-                Event::Wheel(wheel_event.clone())
+                let mut wheel_event = wheel_event.clone();
+                wheel_event.pos -= rect.origin().to_vec2();
+                Event::Wheel(wheel_event)
             }
             Event::Zoom(zoom) => {
                 recurse = had_active || child_ctx.base_state.is_hot;
                 Event::Zoom(*zoom)
             }
             Event::Timer(token) => {
+                recurse = false;
                 Event::Timer(*token)
             }
             Event::Command(cmd) => Event::Command(cmd.clone()),
@@ -596,6 +698,10 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
     }
 
     pub fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
+        // in the case of an internal routing event, if we are at our target
+        // we may replace the routing event with the actual event
+        let mut substitute_event = None;
+
         let recurse = match event {
             LifeCycle::Internal(internal) => match internal {
                 InternalLifeCycle::RouteWidgetAdded => {
@@ -629,10 +735,11 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                         // Only send FocusChanged in case there's actual change
                         if old != new {
                             self.state.has_focus = change;
-                            let event = LifeCycle::FocusChanged(change);
-                            self.inner.lifecycle(ctx, &event, data, env);
+                            substitute_event = Some(LifeCycle::FocusChanged(change));
+                            true
+                        } else {
+                            false
                         }
-                        false
                     } else {
                         self.state.has_focus = false;
                         // Recurse when the target widgets could be our descendants.
@@ -674,6 +781,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
 
                 true
             }
+            //NOTE: this is not sent here, but from the special set_hot_state method
             LifeCycle::HotChanged(_) => false,
             LifeCycle::FocusChanged(_) => {
                 // We are a descendant of a widget that has/had focus.
@@ -681,6 +789,9 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                 false
             }
         };
+
+        // use the substitute event, if one exists
+        let event = substitute_event.as_ref().unwrap_or(event);
 
         if recurse {
             let mut child_ctx = LifeCycleCtx {
@@ -755,7 +866,8 @@ impl BaseState {
             id,
             layout_rect: None,
             paint_insets: Insets::ZERO,
-            needs_inval: false,
+            invalid: Region::EMPTY,
+            viewport_offset: Vec2::ZERO,
             is_hot: false,
             needs_layout: false,
             is_active: false,
@@ -777,7 +889,15 @@ impl BaseState {
 
     /// Update to incorporate state changes from a child.
     fn merge_up(&mut self, child_state: &BaseState) {
-        self.needs_inval |= child_state.needs_inval;
+        let mut child_region = child_state.invalid.clone();
+        child_region += child_state.layout_rect().origin().to_vec2() - child_state.viewport_offset;
+        let clip = self
+            .layout_rect()
+            .with_origin(Point::ORIGIN)
+            .inset(self.paint_insets);
+        child_region.intersect_with(clip);
+        self.invalid.merge_with(child_region);
+
         self.needs_layout |= child_state.needs_layout;
         self.request_anim |= child_state.request_anim;
         self.request_timer |= child_state.request_timer;
@@ -802,8 +922,6 @@ impl BaseState {
         self.layout_rect.unwrap_or_default() + self.paint_insets
     }
 
-    #[cfg(test)]
-    #[allow(dead_code)]
     pub(crate) fn layout_rect(&self) -> Rect {
         self.layout_rect.unwrap_or_default()
     }

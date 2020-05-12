@@ -17,8 +17,8 @@
 use druid::widget::prelude::*;
 use druid::widget::{Align, BackgroundBrush, Button, Flex, Label, Padding};
 use druid::{
-    commands as sys_cmds, AppDelegate, AppLauncher, Color, Command, ContextMenu, Data, DelegateCtx,
-    LocalizedString, MenuDesc, MenuItem, Selector, Target, WindowDesc, WindowId,
+    commands as sys_cmds, AppDelegate, AppLauncher, Application, Color, Command, ContextMenu, Data,
+    DelegateCtx, LocalizedString, MenuDesc, MenuItem, Selector, Target, WindowDesc, WindowId,
 };
 
 use log::info;
@@ -74,12 +74,22 @@ fn ui_builder() -> impl Widget<State> {
         data.menu_count = data.menu_count.saturating_sub(1);
         ctx.set_menu(make_menu::<State>(data));
     });
+    let new_button = Button::<State>::new("New window").on_click(|ctx, _data, _env| {
+        ctx.submit_command(sys_cmds::NEW_FILE, Target::Global);
+    });
+    let quit_button = Button::<State>::new("Quit app").on_click(|_ctx, _data, _env| {
+        Application::global().quit();
+    });
 
     let mut col = Flex::column();
     col.add_flex_child(Align::centered(Padding::new(5.0, label)), 1.0);
     let mut row = Flex::row();
     row.add_child(Padding::new(5.0, inc_button));
     row.add_child(Padding::new(5.0, dec_button));
+    col.add_flex_child(Align::centered(row), 1.0);
+    let mut row = Flex::row();
+    row.add_child(Padding::new(5.0, new_button));
+    row.add_child(Padding::new(5.0, quit_button));
     col.add_flex_child(Align::centered(row), 1.0);
     Glow::new(col)
 }
@@ -156,7 +166,7 @@ impl AppDelegate<State> for Delegate {
     fn command(
         &mut self,
         ctx: &mut DelegateCtx,
-        target: &Target,
+        target: Target,
         cmd: &Command,
         data: &mut State,
         _env: &Env,
@@ -174,7 +184,7 @@ impl AppDelegate<State> for Delegate {
                 data.selected = *cmd.get_object().unwrap();
                 let menu = make_menu::<State>(data);
                 let cmd = Command::new(druid::commands::SET_MENU, menu);
-                ctx.submit_command(cmd, *id);
+                ctx.submit_command(cmd, id);
                 false
             }
             // wouldn't it be nice if a menu (like a button) could just mutate state
@@ -183,14 +193,14 @@ impl AppDelegate<State> for Delegate {
                 data.menu_count += 1;
                 let menu = make_menu::<State>(data);
                 let cmd = Command::new(druid::commands::SET_MENU, menu);
-                ctx.submit_command(cmd, *id);
+                ctx.submit_command(cmd, id);
                 false
             }
             (Target::Window(id), &MENU_DECREMENT_ACTION) => {
                 data.menu_count = data.menu_count.saturating_sub(1);
                 let menu = make_menu::<State>(data);
                 let cmd = Command::new(druid::commands::SET_MENU, menu);
-                ctx.submit_command(cmd, *id);
+                ctx.submit_command(cmd, id);
                 false
             }
             (_, &MENU_SWITCH_GLOW_ACTION) => {

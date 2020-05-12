@@ -25,10 +25,11 @@ use instant::Instant;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::kurbo::{Point, Size, Vec2};
+use crate::kurbo::{Point, Rect, Size, Vec2};
 
 use crate::piet::RenderContext;
 
+use super::application::Application;
 use super::error::Error;
 use super::keycodes::key_to_text;
 use super::menu::Menu;
@@ -37,7 +38,7 @@ use crate::dialog::{FileDialogOptions, FileDialogType, FileInfo};
 
 use crate::keyboard;
 use crate::keycodes::KeyCode;
-use crate::mouse::{Cursor, MouseButton, MouseEvent};
+use crate::mouse::{Cursor, MouseButton, MouseButtons, MouseEvent};
 use crate::window::{IdleToken, Text, TimerToken, WinHandler};
 use crate::KeyModifiers;
 
@@ -59,7 +60,7 @@ type Result<T> = std::result::Result<T, Error>;
 const NOMINAL_DPI: f32 = 96.0;
 
 /// Builder abstraction for creating new windows.
-pub struct WindowBuilder {
+pub(crate) struct WindowBuilder {
     handler: Option<Box<dyn WinHandler>>,
     title: String,
     cursor: Cursor,
@@ -89,20 +90,15 @@ struct WindowState {
     window: web_sys::Window,
     canvas: web_sys::HtmlCanvasElement,
     context: web_sys::CanvasRenderingContext2d,
+    invalid_rect: Cell<Rect>,
 }
 
 impl WindowState {
-    fn render(&self) -> bool {
-        self.context
-            .clear_rect(0.0, 0.0, self.get_width() as f64, self.get_height() as f64);
+    fn render(&self, invalid_rect: Rect) -> bool {
         let mut piet_ctx = piet_common::Piet::new(self.context.clone(), self.window.clone());
-        let want_anim_frame = self.handler.borrow_mut().paint(&mut piet_ctx);
+        let want_anim_frame = self.handler.borrow_mut().paint(&mut piet_ctx, invalid_rect);
         if let Err(e) = piet_ctx.finish() {
             log::error!("piet error on render: {:?}", e);
-        }
-        let res = piet_ctx.finish();
-        if let Err(e) = res {
-            log::error!("EndDraw error: {:?}", e);
         }
         want_anim_frame
     }
@@ -144,42 +140,55 @@ impl WindowState {
 fn setup_mouse_down_callback(ws: &Rc<WindowState>) {
     let state = ws.clone();
     register_canvas_event_listener(ws, "mousedown", move |event: web_sys::MouseEvent| {
-        let button = mouse_button(event.button()).unwrap();
-        let event = MouseEvent {
-            pos: Point::new(event.offset_x() as f64, event.offset_y() as f64),
-            mods: get_modifiers!(event),
-            button,
-            count: 1,
-        };
-        state.handler.borrow_mut().mouse_down(&event);
-    });
-}
-
-fn setup_mouse_move_callback(ws: &Rc<WindowState>) {
-    let state = ws.clone();
-    register_canvas_event_listener(ws, "mousemove", move |event: web_sys::MouseEvent| {
-        let button = mouse_button(event.button()).unwrap();
-        let event = MouseEvent {
-            pos: Point::new(event.offset_x() as f64, event.offset_y() as f64),
-            mods: get_modifiers!(event),
-            button,
-            count: 1,
-        };
-        state.handler.borrow_mut().mouse_move(&event);
+        if let Some(button) = mouse_button(event.button()) {
+            let buttons = mouse_buttons(event.buttons());
+            let event = MouseEvent {
+                pos: Point::new(event.offset_x() as f64, event.offset_y() as f64),
+                buttons,
+                mods: get_modifiers!(event),
+                count: 1,
+                focus: false,
+                button,
+                wheel_delta: Vec2::ZERO,
+            };
+            state.handler.borrow_mut().mouse_down(&event);
+        }
     });
 }
 
 fn setup_mouse_up_callback(ws: &Rc<WindowState>) {
     let state = ws.clone();
     register_canvas_event_listener(ws, "mouseup", move |event: web_sys::MouseEvent| {
-        let button = mouse_button(event.button()).unwrap();
+        if let Some(button) = mouse_button(event.button()) {
+            let buttons = mouse_buttons(event.buttons());
+            let event = MouseEvent {
+                pos: Point::new(event.offset_x() as f64, event.offset_y() as f64),
+                buttons,
+                mods: get_modifiers!(event),
+                count: 0,
+                focus: false,
+                button,
+                wheel_delta: Vec2::ZERO,
+            };
+            state.handler.borrow_mut().mouse_up(&event);
+        }
+    });
+}
+
+fn setup_mouse_move_callback(ws: &Rc<WindowState>) {
+    let state = ws.clone();
+    register_canvas_event_listener(ws, "mousemove", move |event: web_sys::MouseEvent| {
+        let buttons = mouse_buttons(event.buttons());
         let event = MouseEvent {
             pos: Point::new(event.offset_x() as f64, event.offset_y() as f64),
+            buttons,
             mods: get_modifiers!(event),
-            button,
             count: 0,
+            focus: false,
+            button: MouseButton::None,
+            wheel_delta: Vec2::ZERO,
         };
-        state.handler.borrow_mut().mouse_up(&event);
+        state.handler.borrow_mut().mouse_move(&event);
     });
 }
 
@@ -193,20 +202,27 @@ fn setup_scroll_callback(ws: &Rc<WindowState>) {
         let height = state.canvas.height() as f64;
         let width = state.canvas.width() as f64;
 
-        let modifiers = get_modifiers!(event);
-        let mut handler = state.handler.borrow_mut();
-
         // The value 35.0 was manually picked to produce similar behavior to mac/linux.
-        match delta_mode {
-            web_sys::WheelEvent::DOM_DELTA_PIXEL => handler.wheel(Vec2::from((dx, dy)), modifiers),
-            web_sys::WheelEvent::DOM_DELTA_LINE => {
-                handler.wheel(Vec2::from((35.0 * dx, 35.0 * dy)), modifiers)
+        let wheel_delta = match delta_mode {
+            web_sys::WheelEvent::DOM_DELTA_PIXEL => Vec2::new(dx, dy),
+            web_sys::WheelEvent::DOM_DELTA_LINE => Vec2::new(35.0 * dx, 35.0 * dy),
+            web_sys::WheelEvent::DOM_DELTA_PAGE => Vec2::new(width * dx, height * dy),
+            _ => {
+                log::warn!("Invalid deltaMode in WheelEvent: {}", delta_mode);
+                return;
             }
-            web_sys::WheelEvent::DOM_DELTA_PAGE => {
-                handler.wheel(Vec2::from((width * dx, height * dy)), modifiers)
-            }
-            _ => log::warn!("Invalid deltaMode in WheelEvent: {}", delta_mode),
-        }
+        };
+
+        let event = MouseEvent {
+            pos: Point::new(event.offset_x() as f64, event.offset_y() as f64),
+            buttons: mouse_buttons(event.buttons()),
+            mods: get_modifiers!(event),
+            count: 0,
+            focus: false,
+            button: MouseButton::None,
+            wheel_delta,
+        };
+        state.handler.borrow_mut().wheel(&event);
     });
 }
 
@@ -296,7 +312,7 @@ fn setup_web_callbacks(window_state: &Rc<WindowState>) {
 }
 
 impl WindowBuilder {
-    pub fn new() -> WindowBuilder {
+    pub fn new(_app: Application) -> WindowBuilder {
         WindowBuilder {
             handler: None,
             title: String::new(),
@@ -370,6 +386,7 @@ impl WindowBuilder {
             window,
             canvas,
             context,
+            invalid_rect: Cell::new(Rect::ZERO),
         });
 
         setup_web_callbacks(&window);
@@ -411,7 +428,27 @@ impl WindowHandle {
         log::warn!("bring_to_frontand_focus unimplemented for web");
     }
 
+    pub fn invalidate_rect(&self, rect: Rect) {
+        if let Some(s) = self.0.upgrade() {
+            let cur_rect = s.invalid_rect.get();
+            if cur_rect.width() == 0.0 || cur_rect.height() == 0.0 {
+                s.invalid_rect.set(rect);
+            } else if rect.width() != 0.0 && rect.height() != 0.0 {
+                s.invalid_rect.set(cur_rect.union(rect));
+            }
+        }
+        self.render_soon();
+    }
+
     pub fn invalidate(&self) {
+        if let Some(s) = self.0.upgrade() {
+            let rect = Rect::from_origin_size(
+                Point::ORIGIN,
+                // FIXME: does this need scaling? Not sure exactly where dpr enters...
+                (s.get_width() as f64, s.get_height() as f64),
+            );
+            s.invalid_rect.set(rect);
+        }
         self.render_soon();
     }
 
@@ -478,9 +515,11 @@ impl WindowHandle {
     fn render_soon(&self) {
         if let Some(s) = self.0.upgrade() {
             let handle = self.clone();
+            let rect = s.invalid_rect.get();
+            s.invalid_rect.set(Rect::ZERO);
             let state = s.clone();
             s.request_animation_frame(move || {
-                let want_anim_frame = state.render();
+                let want_anim_frame = state.render(rect);
                 if want_anim_frame {
                     handle.render_soon();
                 }
@@ -595,8 +634,30 @@ fn mouse_button(button: i16) -> Option<MouseButton> {
         0 => Some(MouseButton::Left),
         1 => Some(MouseButton::Middle),
         2 => Some(MouseButton::Right),
+        3 => Some(MouseButton::X1),
+        4 => Some(MouseButton::X2),
         _ => None,
     }
+}
+
+fn mouse_buttons(mask: u16) -> MouseButtons {
+    let mut buttons = MouseButtons::new();
+    if mask & 1 != 0 {
+        buttons.insert(MouseButton::Left);
+    }
+    if mask & 1 << 1 != 0 {
+        buttons.insert(MouseButton::Right);
+    }
+    if mask & 1 << 2 != 0 {
+        buttons.insert(MouseButton::Middle);
+    }
+    if mask & 1 << 3 != 0 {
+        buttons.insert(MouseButton::X1);
+    }
+    if mask & 1 << 4 != 0 {
+        buttons.insert(MouseButton::X2);
+    }
+    buttons
 }
 
 fn set_cursor(canvas: &web_sys::HtmlCanvasElement, cursor: &Cursor) {

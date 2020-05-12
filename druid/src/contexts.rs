@@ -21,7 +21,7 @@ use crate::core::{BaseState, CommandQueue, FocusChange};
 use crate::piet::Piet;
 use crate::piet::RenderContext;
 use crate::{
-    Affine, Command, Cursor, Insets, Point, Rect, Size, Target, Text, TimerToken, WidgetId,
+    Affine, Command, Cursor, Insets, Point, Rect, Size, Target, Text, TimerToken, Vec2, WidgetId,
     WindowHandle, WindowId,
 };
 
@@ -114,28 +114,43 @@ pub struct PaintCtx<'a, 'b: 'a> {
     pub(crate) region: Region,
     pub(crate) base_state: &'a BaseState,
     pub(crate) focus_widget: Option<WidgetId>,
+    /// The approximate depth in the tree at the time of painting.
+    pub(crate) depth: u32,
 }
 
 /// A region of a widget, generally used to describe what needs to be drawn.
+///
+/// This is currently just a single `Rect`, but may become more complicated in the future.  Although
+/// this is just a wrapper around `Rect`, it has some different conventions. Mainly, "signed"
+/// invalidation regions don't make sense. Therefore, a rectangle with non-positive width or height
+/// is considered "empty", and all empty rectangles are treated the same.
 #[derive(Debug, Clone)]
 pub struct Region(Rect);
 
 impl<'a> EventCtx<'a> {
     #[deprecated(since = "0.5.0", note = "use request_paint instead")]
     pub fn invalidate(&mut self) {
-        // Note: for the current functionality, we could shortcut and just
-        // request an invalidate on the window. But when we do fine-grained
-        // invalidation, we'll want to compute the invalidation region, and
-        // that needs to be propagated (with, likely, special handling for
-        // scrolling).
-        self.base_state.needs_inval = true;
+        self.request_paint();
     }
 
-    /// Request a [`paint`] pass.
+    /// Request a [`paint`] pass. This is equivalent to calling [`request_paint_rect`] for the
+    /// widget's [`paint_rect`].
     ///
     /// [`paint`]: trait.Widget.html#tymethod.paint
+    /// [`request_paint_rect`]: struct.EventCtx.html#method.request_paint_rect
+    /// [`paint_rect`]: struct.WidgetPod.html#method.paint_rect
     pub fn request_paint(&mut self) {
-        self.base_state.needs_inval = true;
+        self.request_paint_rect(
+            self.base_state.paint_rect() - self.base_state.layout_rect().origin().to_vec2(),
+        );
+    }
+
+    /// Request a [`paint`] pass for redrawing a rectangle, which is given relative to our layout
+    /// rectangle.
+    ///
+    /// [`paint`]: trait.Widget.html#tymethod.paint
+    pub fn request_paint_rect(&mut self, rect: Rect) {
+        self.base_state.invalid.add_rect(rect);
     }
 
     /// Request a layout pass.
@@ -150,7 +165,6 @@ impl<'a> EventCtx<'a> {
     /// [`layout`]: trait.Widget.html#tymethod.layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
-        self.base_state.needs_inval = true;
     }
 
     /// Indicate that your children have changed.
@@ -158,8 +172,7 @@ impl<'a> EventCtx<'a> {
     /// Widgets must call this method after adding a new child.
     pub fn children_changed(&mut self) {
         self.base_state.children_changed = true;
-        self.base_state.needs_layout = true;
-        self.base_state.needs_inval = true;
+        self.request_layout();
     }
 
     /// Get an object which can create text layouts.
@@ -330,14 +343,17 @@ impl<'a> EventCtx<'a> {
         if self.is_focused() {
             self.base_state.request_focus = Some(FocusChange::Resign);
         } else {
-            log::warn!("resign_focus can only be called by the currently focused widget");
+            log::warn!(
+                "resign_focus can only be called by the currently focused widget ({:?})",
+                self.widget_id()
+            );
         }
     }
 
     /// Request an animation frame.
     pub fn request_anim_frame(&mut self) {
         self.base_state.request_anim = true;
-        self.base_state.needs_inval = true;
+        self.request_paint();
     }
 
     /// Request a timer event.
@@ -395,14 +411,27 @@ impl<'a> EventCtx<'a> {
 impl<'a> LifeCycleCtx<'a> {
     #[deprecated(since = "0.5.0", note = "use request_paint instead")]
     pub fn invalidate(&mut self) {
-        self.base_state.needs_inval = true;
+        self.request_paint();
     }
 
-    /// Request a [`paint`] pass.
+    /// Request a [`paint`] pass. This is equivalent to calling [`request_paint_rect`] for the
+    /// widget's [`paint_rect`].
     ///
     /// [`paint`]: trait.Widget.html#tymethod.paint
+    /// [`request_paint_rect`]: struct.LifeCycleCtx.html#method.request_paint_rect
+    /// [`paint_rect`]: struct.WidgetPod.html#method.paint_rect
     pub fn request_paint(&mut self) {
-        self.base_state.needs_inval = true;
+        self.request_paint_rect(
+            self.base_state.paint_rect() - self.base_state.layout_rect().origin().to_vec2(),
+        );
+    }
+
+    /// Request a [`paint`] pass for redrawing a rectangle, which is given relative to our layout
+    /// rectangle.
+    ///
+    /// [`paint`]: trait.Widget.html#tymethod.paint
+    pub fn request_paint_rect(&mut self, rect: Rect) {
+        self.base_state.invalid.add_rect(rect);
     }
 
     /// Request layout.
@@ -412,7 +441,6 @@ impl<'a> LifeCycleCtx<'a> {
     /// [`EventCtx::request_layout`]: struct.EventCtx.html#method.request_layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
-        self.base_state.needs_inval = true;
     }
 
     /// Returns the current widget's `WidgetId`.
@@ -447,13 +475,26 @@ impl<'a> LifeCycleCtx<'a> {
     /// Widgets must call this method after adding a new child.
     pub fn children_changed(&mut self) {
         self.base_state.children_changed = true;
-        self.base_state.needs_layout = true;
-        self.base_state.needs_inval = true;
+        self.request_layout();
     }
 
     /// Request an animation frame.
     pub fn request_anim_frame(&mut self) {
         self.base_state.request_anim = true;
+        self.request_paint();
+    }
+
+    /// The layout size.
+    ///
+    /// This is the layout size as ultimately determined by the parent
+    /// container, on the previous layout pass.
+    ///
+    /// Generally it will be the same as the size returned by the child widget's
+    /// [`layout`] method.
+    ///
+    /// [`layout`]: trait.Widget.html#tymethod.layout
+    pub fn size(&self) -> Size {
+        self.base_state.size()
     }
 
     /// Submit a [`Command`] to be run after this event is handled.
@@ -477,14 +518,27 @@ impl<'a> LifeCycleCtx<'a> {
 impl<'a> UpdateCtx<'a> {
     #[deprecated(since = "0.5.0", note = "use request_paint instead")]
     pub fn invalidate(&mut self) {
-        self.base_state.needs_inval = true;
+        self.request_paint();
     }
 
-    /// Request a [`paint`] pass.
+    /// Request a [`paint`] pass. This is equivalent to calling [`request_paint_rect`] for the
+    /// widget's [`paint_rect`].
     ///
     /// [`paint`]: trait.Widget.html#tymethod.paint
+    /// [`request_paint_rect`]: struct.UpdateCtx.html#method.request_paint_rect
+    /// [`paint_rect`]: struct.WidgetPod.html#method.paint_rect
     pub fn request_paint(&mut self) {
-        self.base_state.needs_inval = true;
+        self.request_paint_rect(
+            self.base_state.paint_rect() - self.base_state.layout_rect().origin().to_vec2(),
+        );
+    }
+
+    /// Request a [`paint`] pass for redrawing a rectangle, which is given relative to our layout
+    /// rectangle.
+    ///
+    /// [`paint`]: trait.Widget.html#tymethod.paint
+    pub fn request_paint_rect(&mut self, rect: Rect) {
+        self.base_state.invalid.add_rect(rect);
     }
 
     /// Request layout.
@@ -494,7 +548,6 @@ impl<'a> UpdateCtx<'a> {
     /// [`EventCtx::request_layout`]: struct.EventCtx.html#method.request_layout
     pub fn request_layout(&mut self) {
         self.base_state.needs_layout = true;
-        self.base_state.needs_inval = true;
     }
 
     /// Indicate that your children have changed.
@@ -502,8 +555,37 @@ impl<'a> UpdateCtx<'a> {
     /// Widgets must call this method after adding a new child.
     pub fn children_changed(&mut self) {
         self.base_state.children_changed = true;
-        self.base_state.needs_layout = true;
-        self.base_state.needs_inval = true;
+        self.request_layout();
+    }
+
+    /// Request an animation frame.
+    pub fn request_anim_frame(&mut self) {
+        self.base_state.request_anim = true;
+        self.request_paint();
+    }
+
+    /// Request a timer event.
+    ///
+    /// The return value is a token, which can be used to associate the
+    /// request with the event.
+    pub fn request_timer(&mut self, deadline: Duration) -> TimerToken {
+        self.base_state.request_timer = true;
+        let timer_token = self.window.request_timer(deadline);
+        self.base_state.add_timer(timer_token);
+        timer_token
+    }
+
+    /// The layout size.
+    ///
+    /// This is the layout size as ultimately determined by the parent
+    /// container, on the previous layout pass.
+    ///
+    /// Generally it will be the same as the size returned by the child widget's
+    /// [`layout`] method.
+    ///
+    /// [`layout`]: trait.Widget.html#tymethod.layout
+    pub fn size(&self) -> Size {
+        self.base_state.size()
     }
 
     /// Submit a [`Command`] to be run after layout and paint finish.
@@ -628,6 +710,20 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
         self.base_state.has_focus
     }
 
+    /// The depth in the tree of the currently painting widget.
+    ///
+    /// This may be used in combination with [`paint_with_z_index`] in order
+    /// to correctly order painting operations.
+    ///
+    /// The `depth` here may not be exact; it is only guaranteed that a child will
+    /// have a greater depth than its parent.
+    ///
+    /// [`paint_with_z_index`]: #method.paint_with_z_index
+    #[inline]
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
     /// Returns the currently visible [`Region`].
     ///
     /// [`Region`]: struct.Region.html
@@ -649,6 +745,7 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
             window_id: self.window_id,
             focus_widget: self.focus_widget,
             region: region.into(),
+            depth: self.depth + 1,
         };
         f(&mut child_ctx);
         self.z_ops.append(&mut child_ctx.z_ops);
@@ -706,6 +803,9 @@ impl<'a, 'b: 'a> PaintCtx<'a, 'b> {
 }
 
 impl Region {
+    /// An empty region.
+    pub const EMPTY: Region = Region(Rect::ZERO);
+
     /// Returns the smallest `Rect` that encloses the entire region.
     pub fn to_rect(&self) -> Rect {
         self.0
@@ -716,11 +816,51 @@ impl Region {
     pub fn intersects(&self, other: Rect) -> bool {
         self.0.intersect(other).area() > 0.
     }
+
+    /// Returns `true` if this region is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.width() <= 0.0 || self.0.height() <= 0.0
+    }
+
+    /// Adds a new `Rect` to this region.
+    ///
+    /// This differs from `Rect::union` in its treatment of empty rectangles: an empty rectangle has
+    /// no effect on the union.
+    pub(crate) fn add_rect(&mut self, rect: Rect) {
+        if self.is_empty() {
+            self.0 = rect;
+        } else if rect.width() > 0.0 && rect.height() > 0.0 {
+            self.0 = self.0.union(rect);
+        }
+    }
+
+    /// Modifies this region by including everything in the other region.
+    pub(crate) fn merge_with(&mut self, other: Region) {
+        self.add_rect(other.0);
+    }
+
+    /// Modifies this region by intersecting it with the given rectangle.
+    pub(crate) fn intersect_with(&mut self, rect: Rect) {
+        self.0 = self.0.intersect(rect);
+    }
+}
+
+impl std::ops::AddAssign<Vec2> for Region {
+    fn add_assign(&mut self, offset: Vec2) {
+        self.0 = self.0 + offset;
+    }
+}
+
+impl std::ops::SubAssign<Vec2> for Region {
+    fn sub_assign(&mut self, offset: Vec2) {
+        self.0 = self.0 - offset;
+    }
 }
 
 impl From<Rect> for Region {
     fn from(src: Rect) -> Region {
-        Region(src)
+        // We maintain the invariant that the width/height of the rect are non-negative.
+        Region(src.abs())
     }
 }
 

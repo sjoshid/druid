@@ -43,10 +43,11 @@ use piet_common::dwrite::DwriteFactory;
 
 use crate::platform::windows::HwndRenderTarget;
 
-use crate::kurbo::{Point, Size, Vec2};
+use crate::kurbo::{Point, Rect, Size, Vec2};
 use crate::piet::{Piet, RenderContext};
 
 use super::accels::register_accel;
+use super::application::Application;
 use super::dcomp::{D3D11Device, DCompositionDevice, DCompositionTarget, DCompositionVisual};
 use super::dialog::get_file_dialog_path;
 use super::error::Error;
@@ -59,7 +60,7 @@ use crate::common_util::IdleCallback;
 use crate::dialog::{FileDialogOptions, FileDialogType, FileInfo};
 use crate::keyboard::{KeyEvent, KeyModifiers};
 use crate::keycodes::KeyCode;
-use crate::mouse::{Cursor, MouseButton, MouseEvent};
+use crate::mouse::{Cursor, MouseButton, MouseButtons, MouseEvent};
 use crate::window::{IdleToken, Text, TimerToken, WinHandler};
 
 extern "system" {
@@ -67,7 +68,8 @@ extern "system" {
 }
 
 /// Builder abstraction for creating new windows.
-pub struct WindowBuilder {
+pub(crate) struct WindowBuilder {
+    app: Application,
     handler: Option<Box<dyn WinHandler>>,
     title: String,
     menu: Option<Menu>,
@@ -114,7 +116,7 @@ pub struct WindowHandle {
 
 /// A handle that can get used to schedule an idle handler. Note that
 /// this handle is thread safe. If the handle is used after the hwnd
-/// has been destroyed, probably not much will go wrong (the XI_RUN_IDLE
+/// has been destroyed, probably not much will go wrong (the DS_RUN_IDLE
 /// message may be sent to a stray window).
 #[derive(Clone)]
 pub struct IdleHandle {
@@ -142,6 +144,8 @@ struct WindowState {
 trait WndProc {
     fn connect(&self, handle: &WindowHandle, state: WndState);
 
+    fn cleanup(&self, hwnd: HWND);
+
     fn window_proc(&self, hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM)
         -> Option<LRESULT>;
 }
@@ -149,6 +153,7 @@ trait WndProc {
 // State and logic for the winapi window procedure entry point. Note that this level
 // implements policies such as the use of Direct2D for painting.
 struct MyWndProc {
+    app: Application,
     handle: RefCell<WindowHandle>,
     d2d_factory: D2DFactory,
     dwrite_factory: DwriteFactory,
@@ -169,10 +174,10 @@ struct WndState {
     /// The `char` of the last `WM_CHAR` event, if there has not already been
     /// a `WM_KEYUP` event.
     stashed_char: Option<char>,
-    // Stores a bit mask of all mouse buttons that are currently holding mouse
+    // Stores a set of all mouse buttons that are currently holding mouse
     // capture. When the first mouse button is down on our window we enter
     // capture, and we hold it until the last mouse button is up.
-    captured_mouse_buttons: u32,
+    captured_mouse_buttons: MouseButtons,
     // Is this window the topmost window under the mouse cursor
     has_mouse_focus: bool,
     //TODO: track surrogate orphan
@@ -190,9 +195,9 @@ struct DCompState {
 }
 
 /// Message indicating there are idle tasks to run.
-const XI_RUN_IDLE: UINT = WM_USER;
+const DS_RUN_IDLE: UINT = WM_USER;
 
-/// Message relaying a request to destroy the window
+/// Message relaying a request to destroy the window.
 ///
 /// Calling `DestroyWindow` from inside the handler is problematic
 /// because it will recursively cause a `WM_DESTROY` message to be
@@ -202,7 +207,7 @@ const XI_RUN_IDLE: UINT = WM_USER;
 /// As a solution, instead of immediately calling `DestroyWindow`, we
 /// send this message to request destroying the window, so that at the
 /// time it is handled, we can successfully borrow the handler.
-const XI_REQUEST_DESTROY: UINT = WM_USER + 1;
+pub(crate) const DS_REQUEST_DESTROY: UINT = WM_USER + 1;
 
 impl Default for PresentStrategy {
     fn default() -> PresentStrategy {
@@ -215,20 +220,53 @@ impl Default for PresentStrategy {
 /// Must only be called while handling an input message.
 /// This queries the keyboard state at the time of message delivery.
 fn get_mod_state() -> KeyModifiers {
-    //FIXME: does not handle windows key
-    unsafe {
-        let mut mod_state = KeyModifiers::default();
-        if GetKeyState(VK_MENU) < 0 {
-            mod_state.alt = true;
-        }
-        if GetKeyState(VK_CONTROL) < 0 {
-            mod_state.ctrl = true;
-        }
-        if GetKeyState(VK_SHIFT) < 0 {
-            mod_state.shift = true;
-        }
-        mod_state
+    KeyModifiers {
+        shift: get_mod_state_shift(),
+        alt: get_mod_state_alt(),
+        ctrl: get_mod_state_ctrl(),
+        meta: get_mod_state_win(),
     }
+}
+
+#[inline]
+fn get_mod_state_shift() -> bool {
+    unsafe { GetKeyState(VK_SHIFT) < 0 }
+}
+
+#[inline]
+fn get_mod_state_alt() -> bool {
+    unsafe { GetKeyState(VK_MENU) < 0 }
+}
+
+#[inline]
+fn get_mod_state_ctrl() -> bool {
+    unsafe { GetKeyState(VK_CONTROL) < 0 }
+}
+
+#[inline]
+fn get_mod_state_win() -> bool {
+    unsafe { GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0 }
+}
+
+/// Extract the buttons that are being held down from wparam in mouse events.
+fn get_buttons(wparam: WPARAM) -> MouseButtons {
+    let mut buttons = MouseButtons::new();
+    if wparam & MK_LBUTTON != 0 {
+        buttons.insert(MouseButton::Left);
+    }
+    if wparam & MK_RBUTTON != 0 {
+        buttons.insert(MouseButton::Right);
+    }
+    if wparam & MK_MBUTTON != 0 {
+        buttons.insert(MouseButton::Middle);
+    }
+    if wparam & MK_XBUTTON1 != 0 {
+        buttons.insert(MouseButton::X1);
+    }
+    if wparam & MK_XBUTTON2 != 0 {
+        buttons.insert(MouseButton::X2);
+    }
+    buttons
 }
 
 fn is_point_in_client_rect(hwnd: HWND, x: i32, y: i32) -> bool {
@@ -258,13 +296,22 @@ impl WndState {
     }
 
     // Renders but does not present.
-    fn render(&mut self, d2d: &D2DFactory, dw: &DwriteFactory, handle: &RefCell<WindowHandle>) {
+    fn render(
+        &mut self,
+        d2d: &D2DFactory,
+        dw: &DwriteFactory,
+        handle: &RefCell<WindowHandle>,
+        invalid_rect: Rect,
+    ) {
         let rt = self.render_target.as_mut().unwrap();
         rt.begin_draw();
         let anim;
         {
             let mut piet_ctx = Piet::new(d2d, dw, rt);
-            anim = self.handler.paint(&mut piet_ctx);
+            // The documentation on DXGI_PRESENT_PARAMETERS says we "must not update any
+            // pixel outside of the dirty rectangles."
+            piet_ctx.clip(invalid_rect);
+            anim = self.handler.paint(&mut piet_ctx, invalid_rect);
             if let Err(e) = piet_ctx.finish() {
                 error!("piet error on render: {:?}", e);
             }
@@ -283,17 +330,17 @@ impl WndState {
     }
 
     fn enter_mouse_capture(&mut self, hwnd: HWND, button: MouseButton) {
-        if self.captured_mouse_buttons == 0 {
+        if self.captured_mouse_buttons.is_empty() {
             unsafe {
                 SetCapture(hwnd);
             }
         }
-        self.captured_mouse_buttons |= 1 << (button as u32);
+        self.captured_mouse_buttons.insert(button);
     }
 
     fn exit_mouse_capture(&mut self, button: MouseButton) -> bool {
-        self.captured_mouse_buttons &= !(1 << (button as u32));
-        self.captured_mouse_buttons == 0
+        self.captured_mouse_buttons.remove(button);
+        self.captured_mouse_buttons.is_empty()
     }
 }
 
@@ -314,6 +361,10 @@ impl WndProc for MyWndProc {
     fn connect(&self, handle: &WindowHandle, state: WndState) {
         *self.handle.borrow_mut() = handle.clone();
         *self.state.borrow_mut() = Some(state);
+    }
+
+    fn cleanup(&self, hwnd: HWND) {
+        self.app.remove_window(hwnd);
     }
 
     #[allow(clippy::cognitive_complexity)]
@@ -357,16 +408,29 @@ impl WndProc for MyWndProc {
             }
             WM_PAINT => unsafe {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
+                    let mut rect: RECT = mem::zeroed();
+                    GetUpdateRect(hwnd, &mut rect, FALSE);
                     let s = s.as_mut().unwrap();
                     if s.render_target.is_none() {
                         let rt = paint::create_render_target(&self.d2d_factory, hwnd);
                         s.render_target = rt.ok();
                     }
                     s.handler.rebuild_resources();
-                    s.render(&self.d2d_factory, &self.dwrite_factory, &self.handle);
+                    s.render(
+                        &self.d2d_factory,
+                        &self.dwrite_factory,
+                        &self.handle,
+                        self.handle.borrow().rect_to_px(rect),
+                    );
                     if let Some(ref mut ds) = s.dcomp_state {
+                        let params = DXGI_PRESENT_PARAMETERS {
+                            DirtyRectsCount: 1,
+                            pDirtyRects: &mut rect,
+                            pScrollRect: null_mut(),
+                            pScrollOffset: null_mut(),
+                        };
                         if !ds.sizing {
-                            (*ds.swap_chain).Present(1, 0);
+                            (*ds.swap_chain).Present1(1, 0, &params);
                             let _ = ds.dcomp_device.commit();
                         }
                     }
@@ -380,11 +444,24 @@ impl WndProc for MyWndProc {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
                     if s.dcomp_state.is_some() {
+                        let mut rect: RECT = mem::zeroed();
+                        if GetClientRect(hwnd, &mut rect) == FALSE {
+                            log::warn!(
+                                "GetClientRect failed: {}",
+                                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                            );
+                            return None;
+                        }
                         let rt = paint::create_render_target(&self.d2d_factory, hwnd);
                         s.render_target = rt.ok();
                         {
                             s.handler.rebuild_resources();
-                            s.render(&self.d2d_factory, &self.dwrite_factory, &self.handle);
+                            s.render(
+                                &self.d2d_factory,
+                                &self.dwrite_factory,
+                                &self.handle,
+                                self.handle.borrow().rect_to_px(rect),
+                            );
                         }
 
                         if let Some(ref mut ds) = s.dcomp_state {
@@ -403,8 +480,11 @@ impl WndProc for MyWndProc {
                     let s = s.as_mut().unwrap();
                     if s.dcomp_state.is_some() {
                         let mut rect: RECT = mem::zeroed();
-                        if GetClientRect(hwnd, &mut rect) == 0 {
-                            warn!("GetClientRect failed.");
+                        if GetClientRect(hwnd, &mut rect) == FALSE {
+                            log::warn!(
+                                "GetClientRect failed: {}",
+                                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                            );
                             return None;
                         }
                         let width = (rect.right - rect.left) as u32;
@@ -419,7 +499,12 @@ impl WndProc for MyWndProc {
                         if SUCCEEDED(res) {
                             s.handler.rebuild_resources();
                             s.rebuild_render_target(&self.d2d_factory);
-                            s.render(&self.d2d_factory, &self.dwrite_factory, &self.handle);
+                            s.render(
+                                &self.d2d_factory,
+                                &self.dwrite_factory,
+                                &self.handle,
+                                self.handle.borrow().rect_to_px(rect),
+                            );
                             (*s.dcomp_state.as_ref().unwrap().swap_chain).Present(0, 0);
                         } else {
                             error!("ResizeBuffers failed: 0x{:x}", res);
@@ -454,8 +539,6 @@ impl WndProc for MyWndProc {
                     if use_hwnd {
                         if let Some(ref mut rt) = s.render_target {
                             if let Some(hrt) = cast_to_hwnd(rt) {
-                                let width = LOWORD(lparam as u32) as u32;
-                                let height = HIWORD(lparam as u32) as u32;
                                 let size = D2D1_SIZE_U { width, height };
                                 let _ = hrt.ptr.Resize(&size);
                             }
@@ -474,8 +557,10 @@ impl WndProc for MyWndProc {
                             );
                         }
                         if SUCCEEDED(res) {
+                            let (w, h) = self.handle.borrow().pixels_to_px_xy(width, height);
+                            let rect = Rect::from_origin_size(Point::ORIGIN, (w as f64, h as f64));
                             s.rebuild_render_target(&self.d2d_factory);
-                            s.render(&self.d2d_factory, &self.dwrite_factory, &self.handle);
+                            s.render(&self.d2d_factory, &self.dwrite_factory, &self.handle, rect);
                             if let Some(ref mut dcomp_state) = s.dcomp_state {
                                 (*dcomp_state.swap_chain).Present(0, 0);
                                 let _ = dcomp_state.dcomp_device.commit();
@@ -570,31 +655,53 @@ impl WndProc for MyWndProc {
                 Some(0)
             }
             //TODO: WM_SYSCOMMAND
-            WM_MOUSEWHEEL => {
+            WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
                 // TODO: apply mouse sensitivity based on
                 // SPI_GETWHEELSCROLLLINES setting.
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
-                    let delta_y = HIWORD(wparam as u32) as i16 as f64;
-                    let mods = get_mod_state();
-                    let delta = if mods.shift {
-                        Vec2::new(-delta_y, 0.)
-                    } else {
-                        Vec2::new(0., -delta_y)
+                    let system_delta = HIWORD(wparam as u32) as i16 as f64;
+                    let down_state = LOWORD(wparam as u32) as usize;
+                    let mods = KeyModifiers {
+                        shift: down_state & MK_SHIFT != 0,
+                        alt: get_mod_state_alt(),
+                        ctrl: down_state & MK_CONTROL != 0,
+                        meta: get_mod_state_win(),
                     };
-                    s.handler.wheel(delta, mods);
-                } else {
-                    self.log_dropped_msg(hwnd, msg, wparam, lparam);
-                }
-                Some(0)
-            }
-            WM_MOUSEHWHEEL => {
-                if let Ok(mut s) = self.state.try_borrow_mut() {
-                    let s = s.as_mut().unwrap();
-                    let delta_x = HIWORD(wparam as u32) as i16 as f64;
-                    let delta = Vec2::new(delta_x, 0.0);
-                    let mods = get_mod_state();
-                    s.handler.wheel(delta, mods);
+                    let wheel_delta = match msg {
+                        WM_MOUSEWHEEL if mods.shift => Vec2::new(-system_delta, 0.),
+                        WM_MOUSEWHEEL => Vec2::new(0., -system_delta),
+                        WM_MOUSEHWHEEL => Vec2::new(system_delta, 0.),
+                        _ => unreachable!(),
+                    };
+
+                    let mut p = POINT {
+                        x: LOWORD(lparam as u32) as i16 as i32,
+                        y: HIWORD(lparam as u32) as i16 as i32,
+                    };
+                    unsafe {
+                        if ScreenToClient(hwnd, &mut p) == FALSE {
+                            log::warn!(
+                                "ScreenToClient failed: {}",
+                                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                            );
+                            return None;
+                        }
+                    }
+
+                    let (px, py) = self.handle.borrow().pixels_to_px_xy(p.x, p.y);
+                    let pos = Point::new(px as f64, py as f64);
+                    let buttons = get_buttons(down_state);
+                    let event = MouseEvent {
+                        pos,
+                        buttons,
+                        mods,
+                        count: 0,
+                        focus: false,
+                        button: MouseButton::None,
+                        wheel_delta,
+                    };
+                    s.handler.wheel(&event);
                 } else {
                     self.log_dropped_msg(hwnd, msg, wparam, lparam);
                 }
@@ -631,22 +738,21 @@ impl WndProc for MyWndProc {
 
                     let (px, py) = self.handle.borrow().pixels_to_px_xy(x, y);
                     let pos = Point::new(px as f64, py as f64);
-                    let mods = get_mod_state();
-                    let button = match wparam {
-                        w if (w & 1) > 0 => MouseButton::Left,
-                        w if (w & 1 << 1) > 0 => MouseButton::Right,
-                        w if (w & 1 << 5) > 0 => MouseButton::Middle,
-                        w if (w & 1 << 6) > 0 => MouseButton::X1,
-                        w if (w & 1 << 7) > 0 => MouseButton::X2,
-                        //FIXME: I guess we probably do want `MouseButton::None`?
-                        //this feels bad, but also this gets discarded in druid anyway.
-                        _ => MouseButton::Left,
+                    let mods = KeyModifiers {
+                        shift: wparam & MK_SHIFT != 0,
+                        alt: get_mod_state_alt(),
+                        ctrl: wparam & MK_CONTROL != 0,
+                        meta: get_mod_state_win(),
                     };
+                    let buttons = get_buttons(wparam);
                     let event = MouseEvent {
                         pos,
+                        buttons,
                         mods,
-                        button,
                         count: 0,
+                        focus: false,
+                        button: MouseButton::None,
+                        wheel_delta: Vec2::ZERO,
                     };
                     s.handler.mouse_move(&event);
                 } else {
@@ -666,55 +772,66 @@ impl WndProc for MyWndProc {
             }
             // TODO: not clear where double-click processing should happen. Currently disabled
             // because CS_DBLCLKS is not set
-            WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MBUTTONDBLCLK
-            | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP
+            WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDBLCLK
+            | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP
             | WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
                 let mut should_release_capture = false;
-                if let Ok(mut s) = self.state.try_borrow_mut() {
-                    let s = s.as_mut().unwrap();
-                    let button = match msg {
-                        WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP => MouseButton::Left,
-                        WM_MBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP => MouseButton::Middle,
-                        WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP => MouseButton::Right,
-                        WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
-                            match HIWORD(wparam as u32) {
-                                1 => MouseButton::X1,
-                                2 => MouseButton::X2,
-                                _ => {
-                                    warn!("unexpected X button event");
-                                    return None;
-                                }
+                if let Some(button) = match msg {
+                    WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP => Some(MouseButton::Left),
+                    WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP => Some(MouseButton::Right),
+                    WM_MBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP => Some(MouseButton::Middle),
+                    WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
+                        match HIWORD(wparam as u32) {
+                            XBUTTON1 => Some(MouseButton::X1),
+                            XBUTTON2 => Some(MouseButton::X2),
+                            w => {
+                                // Should never happen with current Windows
+                                log::warn!("Received an unknown XBUTTON event ({})", w);
+                                None
                             }
                         }
-                        _ => unreachable!(),
-                    };
-                    let count = match msg {
-                        WM_LBUTTONDOWN | WM_MBUTTONDOWN | WM_RBUTTONDOWN | WM_XBUTTONDOWN => 1,
-                        WM_LBUTTONDBLCLK | WM_MBUTTONDBLCLK | WM_RBUTTONDBLCLK
-                        | WM_XBUTTONDBLCLK => 2,
-                        WM_LBUTTONUP | WM_MBUTTONUP | WM_RBUTTONUP | WM_XBUTTONUP => 0,
-                        _ => unreachable!(),
-                    };
-                    let x = LOWORD(lparam as u32) as i16 as i32;
-                    let y = HIWORD(lparam as u32) as i16 as i32;
-                    let (px, py) = self.handle.borrow().pixels_to_px_xy(x, y);
-                    let pos = Point::new(px as f64, py as f64);
-                    let mods = get_mod_state();
-                    let event = MouseEvent {
-                        pos,
-                        mods,
-                        button,
-                        count,
-                    };
-                    if count > 0 {
-                        s.enter_mouse_capture(hwnd, button);
-                        s.handler.mouse_down(&event);
-                    } else {
-                        s.handler.mouse_up(&event);
-                        should_release_capture = s.exit_mouse_capture(button);
                     }
-                } else {
-                    self.log_dropped_msg(hwnd, msg, wparam, lparam);
+                    _ => unreachable!(),
+                } {
+                    if let Ok(mut s) = self.state.try_borrow_mut() {
+                        let s = s.as_mut().unwrap();
+                        let count = match msg {
+                            WM_LBUTTONDOWN | WM_MBUTTONDOWN | WM_RBUTTONDOWN | WM_XBUTTONDOWN => 1,
+                            WM_LBUTTONDBLCLK | WM_MBUTTONDBLCLK | WM_RBUTTONDBLCLK
+                            | WM_XBUTTONDBLCLK => 2,
+                            WM_LBUTTONUP | WM_MBUTTONUP | WM_RBUTTONUP | WM_XBUTTONUP => 0,
+                            _ => unreachable!(),
+                        };
+                        let x = LOWORD(lparam as u32) as i16 as i32;
+                        let y = HIWORD(lparam as u32) as i16 as i32;
+                        let (px, py) = self.handle.borrow().pixels_to_px_xy(x, y);
+                        let pos = Point::new(px as f64, py as f64);
+                        let mods = KeyModifiers {
+                            shift: wparam & MK_SHIFT != 0,
+                            alt: get_mod_state_alt(),
+                            ctrl: wparam & MK_CONTROL != 0,
+                            meta: get_mod_state_win(),
+                        };
+                        let buttons = get_buttons(wparam);
+                        let event = MouseEvent {
+                            pos,
+                            buttons,
+                            mods,
+                            count,
+                            focus: false,
+                            button,
+                            wheel_delta: Vec2::ZERO,
+                        };
+                        if count > 0 {
+                            s.enter_mouse_capture(hwnd, button);
+                            s.handler.mouse_down(&event);
+                        } else {
+                            s.handler.mouse_up(&event);
+                            should_release_capture = s.exit_mouse_capture(button);
+                        }
+                    } else {
+                        self.log_dropped_msg(hwnd, msg, wparam, lparam);
+                    }
                 }
 
                 // ReleaseCapture() is deferred: it needs to be called without having a mutable
@@ -733,7 +850,7 @@ impl WndProc for MyWndProc {
 
                 Some(0)
             }
-            XI_REQUEST_DESTROY => {
+            DS_REQUEST_DESTROY => {
                 unsafe {
                     DestroyWindow(hwnd);
                 }
@@ -746,7 +863,7 @@ impl WndProc for MyWndProc {
                 } else {
                     self.log_dropped_msg(hwnd, msg, wparam, lparam);
                 }
-                None
+                Some(0)
             }
             WM_TIMER => {
                 let id = wparam;
@@ -764,7 +881,7 @@ impl WndProc for MyWndProc {
             WM_CAPTURECHANGED => {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
-                    s.captured_mouse_buttons = 0;
+                    s.captured_mouse_buttons.clear();
                 } else {
                     self.log_dropped_msg(hwnd, msg, wparam, lparam);
                 }
@@ -785,7 +902,7 @@ impl WndProc for MyWndProc {
                 }
                 Some(0)
             }
-            XI_RUN_IDLE => {
+            DS_RUN_IDLE => {
                 if let Ok(mut s) = self.state.try_borrow_mut() {
                     let s = s.as_mut().unwrap();
                     let queue = self.handle.borrow().take_idle_queue();
@@ -806,8 +923,9 @@ impl WndProc for MyWndProc {
 }
 
 impl WindowBuilder {
-    pub fn new() -> WindowBuilder {
+    pub fn new(app: Application) -> WindowBuilder {
         WindowBuilder {
+            app,
             handler: None,
             title: String::new(),
             menu: None,
@@ -851,13 +969,11 @@ impl WindowBuilder {
 
     pub fn build(self) -> Result<WindowHandle, Error> {
         unsafe {
-            // Maybe separate registration in build api? Probably only need to
-            // register once even for multiple window creation.
-
             let class_name = super::util::CLASS_NAME.to_wide();
             let dwrite_factory = DwriteFactory::new().unwrap();
             let dw_clone = dwrite_factory.clone();
             let wndproc = MyWndProc {
+                app: self.app.clone(),
                 handle: Default::default(),
                 d2d_factory: D2DFactory::new().unwrap(),
                 dwrite_factory: dw_clone,
@@ -897,7 +1013,7 @@ impl WindowBuilder {
                 min_size: self.min_size,
                 stashed_key_code: KeyCode::Unknown(0),
                 stashed_char: None,
-                captured_mouse_buttons: 0,
+                captured_mouse_buttons: MouseButtons::new(),
                 has_mouse_focus: false,
             };
             win.wndproc.connect(&handle, state);
@@ -939,6 +1055,7 @@ impl WindowBuilder {
             if hwnd.is_null() {
                 return Err(Error::NullHwnd);
             }
+            self.app.add_window(hwnd);
 
             if let Some(accels) = accels {
                 register_accel(hwnd, &accels);
@@ -1080,6 +1197,7 @@ pub(crate) unsafe extern "system" fn win_proc_dispatch(
     };
 
     if msg == WM_NCDESTROY && !window_ptr.is_null() {
+        (*window_ptr).wndproc.cleanup(hwnd);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         mem::drop(Rc::from_raw(window_ptr));
     }
@@ -1151,7 +1269,7 @@ impl WindowHandle {
         if let Some(w) = self.state.upgrade() {
             let hwnd = w.hwnd.get();
             unsafe {
-                PostMessageW(hwnd, XI_REQUEST_DESTROY, 0, 0);
+                PostMessageW(hwnd, DS_REQUEST_DESTROY, 0, 0);
             }
         }
     }
@@ -1167,6 +1285,21 @@ impl WindowHandle {
             let hwnd = w.hwnd.get();
             unsafe {
                 InvalidateRect(hwnd, null(), FALSE);
+            }
+        }
+    }
+
+    pub fn invalidate_rect(&self, rect: Rect) {
+        let rect = self.px_to_rect(rect);
+        if let Some(w) = self.state.upgrade() {
+            let hwnd = w.hwnd.get();
+            unsafe {
+                if InvalidateRect(hwnd, &rect, FALSE) == FALSE {
+                    log::warn!(
+                        "InvalidateRect failed: {}",
+                        Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                    );
+                }
             }
         }
     }
@@ -1356,6 +1489,23 @@ impl WindowHandle {
         ((x.into() as f32) * scale, (y.into() as f32) * scale)
     }
 
+    /// Convert a rectangle from physical pixels to px units.
+    pub fn rect_to_px(&self, rect: RECT) -> Rect {
+        let (x0, y0) = self.pixels_to_px_xy(rect.left, rect.top);
+        let (x1, y1) = self.pixels_to_px_xy(rect.right, rect.bottom);
+        Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64)
+    }
+
+    pub fn px_to_rect(&self, rect: Rect) -> RECT {
+        let scale = self.get_dpi() as f64 / 96.0;
+        RECT {
+            left: (rect.x0 * scale).floor() as i32,
+            top: (rect.y0 * scale).floor() as i32,
+            right: (rect.x1 * scale).ceil() as i32,
+            bottom: (rect.y1 * scale).ceil() as i32,
+        }
+    }
+
     /// Allocate a timer slot.
     ///
     /// Returns an id and an elapsed time in ms
@@ -1391,7 +1541,7 @@ impl IdleHandle {
         let mut queue = self.queue.lock().unwrap();
         if queue.is_empty() {
             unsafe {
-                PostMessageW(self.hwnd, XI_RUN_IDLE, 0, 0);
+                PostMessageW(self.hwnd, DS_RUN_IDLE, 0, 0);
             }
         }
         queue.push(IdleKind::Callback(Box::new(callback)));
@@ -1401,7 +1551,7 @@ impl IdleHandle {
         let mut queue = self.queue.lock().unwrap();
         if queue.is_empty() {
             unsafe {
-                PostMessageW(self.hwnd, XI_RUN_IDLE, 0, 0);
+                PostMessageW(self.hwnd, DS_RUN_IDLE, 0, 0);
             }
         }
         queue.push(IdleKind::Token(token));

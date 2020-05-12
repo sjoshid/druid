@@ -178,6 +178,12 @@ impl<T: Data, U: Data> Data for Result<T, U> {
     }
 }
 
+impl<D: Data> Data for Vec<D> {
+    fn same(&self, other: &Self) -> bool {
+        self.iter().zip(other.iter()).all(|(a, b)| a.same(b))
+    }
+}
+
 impl Data for () {
     fn same(&self, _other: &Self) -> bool {
         true
@@ -366,5 +372,38 @@ impl Data for kurbo::QuadBez {
 impl Data for piet::Color {
     fn same(&self, other: &Self) -> bool {
         self.as_rgba_u32().same(&other.as_rgba_u32())
+    }
+}
+
+macro_rules! impl_data_for_array {
+    () => {};
+    ($this:tt $($rest:tt)*) => {
+        impl<T: Data> Data for [T; $this] {
+            fn same(&self, other: &Self) -> bool {
+                self.iter().zip(other.iter()).all(|(a, b)| a.same(b))
+            }
+        }
+        impl_data_for_array!($($rest)*);
+    }
+}
+
+impl_data_for_array! { 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 }
+
+#[cfg(test)]
+mod test {
+    use super::Data;
+
+    #[test]
+    fn vec_data() {
+        let input = vec![1u8, 0, 0, 1, 0];
+        assert!(input.same(&vec![1u8, 0, 0, 1, 0]));
+        assert!(!input.same(&vec![1u8, 1, 0, 1, 0]));
+    }
+
+    #[test]
+    fn array_data() {
+        let input = [1u8, 0, 0, 1, 0];
+        assert!(input.same(&[1u8, 0, 0, 1, 0]));
+        assert!(!input.same(&[1u8, 1, 0, 1, 0]));
     }
 }
