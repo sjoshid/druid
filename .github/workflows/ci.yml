@@ -37,10 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: install cairo
-        run: brew install cairo
-        if: contains(matrix.os, 'mac')
-
       - name: install libgtk-3-dev libx11-dev
         run: |
           sudo apt update
@@ -66,7 +62,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path=druid/Cargo.toml --all-targets --features=svg,image -- -D warnings
+          args: --manifest-path=druid/Cargo.toml --all-targets --features=svg,image,im -- -D warnings
 
       - name: cargo clippy druid-derive
         uses: actions-rs/cargo@v1
@@ -91,7 +87,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=druid/Cargo.toml --features=svg,image
+          args: --manifest-path=druid/Cargo.toml --features=svg,image,im
 
       - name: cargo test druid-derive
         uses: actions-rs/cargo@v1
@@ -176,7 +172,7 @@ jobs:
         with:
           command: clippy
           # TODO: Add svg feature when it's no longer broken with wasm
-          args: --manifest-path=druid/Cargo.toml --all-targets --features=image --target wasm32-unknown-unknown -- -D warnings
+          args: --manifest-path=druid/Cargo.toml --all-targets --features=image,im --target wasm32-unknown-unknown -- -D warnings
 
       - name: cargo clippy druid-derive
         uses: actions-rs/cargo@v1
@@ -203,7 +199,7 @@ jobs:
         with:
           command: test
           # TODO: Add svg feature when it's no longer broken with wasm
-          args: --manifest-path=druid/Cargo.toml --features=image --no-run --target wasm32-unknown-unknown
+          args: --manifest-path=druid/Cargo.toml --features=image,im --no-run --target wasm32-unknown-unknown
 
       - name: cargo test compile druid-derive
         uses: actions-rs/cargo@v1
@@ -236,10 +232,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: install cairo
-        run: brew install cairo
-        if: contains(matrix.os, 'mac')
-
       - name: install libgtk-dev libx11-dev
         run: |
           sudo apt update
@@ -264,7 +256,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path=druid/Cargo.toml --features=svg,image
+          args: --manifest-path=druid/Cargo.toml --features=svg,image,im
 
       - name: cargo test druid-derive
         uses: actions-rs/cargo@v1
@@ -303,10 +295,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: install cairo
-        run: brew install cairo
-        if: contains(matrix.os, 'mac')
-
       - name: install libgtk-dev
         run: |
           sudo apt update
@@ -320,11 +308,38 @@ jobs:
           profile: minimal
           override: true
 
-      - name: check docs in druid/
+      # Doc packages in deeper-to-higher dependency order
+      - name: cargo doc druid-shell
         uses: actions-rs/cargo@v1
         with:
           command: doc
-          args: --document-private-items
+          args: --manifest-path=druid-shell/Cargo.toml --document-private-items
+
+      - name: cargo doc druid
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --manifest-path=druid/Cargo.toml --features=svg,image,im --document-private-items
+
+      - name: cargo doc druid-derive
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --manifest-path=druid-derive/Cargo.toml --document-private-items
+
+      - name: cargo doc book examples
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --manifest-path=docs/book_examples/Cargo.toml --document-private-items
+
+      # On Linux also attempt docs for X11.
+      - name: cargo doc druid-shell (X11)
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --manifest-path=druid-shell/Cargo.toml --features=x11 --document-private-items
+        if: contains(matrix.os, 'ubuntu')
 
   mdbook-build:
     runs-on: ubuntu-latest

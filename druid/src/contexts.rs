@@ -14,15 +14,18 @@
 
 //! The context types that are passed into various widget methods.
 
-use std::ops::{Deref, DerefMut};
-use std::time::Duration;
+use std::{
+    any::{Any, TypeId},
+    ops::{Deref, DerefMut},
+    time::Duration,
+};
 
 use crate::core::{BaseState, CommandQueue, FocusChange};
 use crate::piet::Piet;
 use crate::piet::RenderContext;
 use crate::{
-    Affine, Command, Cursor, Insets, Point, Rect, Size, Target, Text, TimerToken, Vec2, WidgetId,
-    WindowHandle, WindowId,
+    commands, Affine, Command, ContextMenu, Cursor, Insets, MenuDesc, Point, Rect, Size, Target,
+    Text, TimerToken, Vec2, WidgetId, WindowDesc, WindowHandle, WindowId,
 };
 
 /// A mutable context provided to event handling methods of widgets.
@@ -43,6 +46,7 @@ pub struct EventCtx<'a> {
     pub(crate) focus_widget: Option<WidgetId>,
     pub(crate) is_handled: bool,
     pub(crate) is_root: bool,
+    pub(crate) app_data_type: TypeId,
 }
 
 /// A mutable context provided to the [`lifecycle`] method on widgets.
@@ -240,6 +244,66 @@ impl<'a> EventCtx<'a> {
     /// Returns a reference to the current `WindowHandle`.
     pub fn window(&self) -> &WindowHandle {
         &self.window
+    }
+
+    /// Create a new window.
+    /// `T` must be the application's root `Data` type (the type provided to [`AppLauncher::launch`]).
+    ///
+    /// [`AppLauncher::launch`]: struct.AppLauncher.html#method.launch
+    pub fn new_window<T: Any>(&mut self, desc: WindowDesc<T>) {
+        if self.app_data_type == TypeId::of::<T>() {
+            self.submit_command(
+                Command::one_shot(commands::NEW_WINDOW, desc),
+                Target::Global,
+            );
+        } else {
+            const MSG: &str = "WindowDesc<T> - T must match the application data type.";
+            if cfg!(debug_assertions) {
+                panic!(MSG);
+            } else {
+                log::error!("EventCtx::new_window: {}", MSG)
+            }
+        }
+    }
+
+    /// Set the menu of the window containing the current widget.
+    /// `T` must be the application's root `Data` type (the type provided to [`AppLauncher::launch`]).
+    ///
+    /// [`AppLauncher::launch`]: struct.AppLauncher.html#method.launch
+    pub fn set_menu<T: Any>(&mut self, menu: MenuDesc<T>) {
+        if self.app_data_type == TypeId::of::<T>() {
+            self.submit_command(
+                Command::new(commands::SET_MENU, menu),
+                Target::Window(self.window_id),
+            );
+        } else {
+            const MSG: &str = "MenuDesc<T> - T must match the application data type.";
+            if cfg!(debug_assertions) {
+                panic!(MSG);
+            } else {
+                log::error!("EventCtx::set_menu: {}", MSG)
+            }
+        }
+    }
+
+    /// Show the context menu in the window containing the current widget.
+    /// `T` must be the application's root `Data` type (the type provided to [`AppLauncher::launch`]).
+    ///
+    /// [`AppLauncher::launch`]: struct.AppLauncher.html#method.launch
+    pub fn show_context_menu<T: Any>(&mut self, menu: ContextMenu<T>) {
+        if self.app_data_type == TypeId::of::<T>() {
+            self.submit_command(
+                Command::new(commands::SHOW_CONTEXT_MENU, menu),
+                Target::Window(self.window_id),
+            );
+        } else {
+            const MSG: &str = "ContextMenu<T> - T must match the application data type.";
+            if cfg!(debug_assertions) {
+                panic!(MSG);
+            } else {
+                log::error!("EventCtx::show_context_menu: {}", MSG)
+            }
+        }
     }
 
     /// Set the event as "handled", which stops its propagation to other

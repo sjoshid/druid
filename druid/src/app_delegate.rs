@@ -14,15 +14,19 @@
 
 //! Customizing application-level behaviour.
 
-use std::collections::VecDeque;
+use std::{
+    any::{Any, TypeId},
+    collections::VecDeque,
+};
 
-use crate::{Command, Data, Env, Event, Target, WindowId};
+use crate::{commands, Command, Data, Env, Event, MenuDesc, Target, WindowDesc, WindowId};
 
 /// A context passed in to [`AppDelegate`] functions.
 ///
 /// [`AppDelegate`]: trait.AppDelegate.html
 pub struct DelegateCtx<'a> {
     pub(crate) command_queue: &'a mut VecDeque<(Target, Command)>,
+    pub(crate) app_data_type: TypeId,
 }
 
 impl<'a> DelegateCtx<'a> {
@@ -42,6 +46,46 @@ impl<'a> DelegateCtx<'a> {
         let command = command.into();
         let target = target.into().unwrap_or(Target::Global);
         self.command_queue.push_back((target, command))
+    }
+
+    /// Create a new window.
+    /// `T` must be the application's root `Data` type (the type provided to [`AppLauncher::launch`]).
+    ///
+    /// [`AppLauncher::launch`]: struct.AppLauncher.html#method.launch
+    pub fn new_window<T: Any>(&mut self, desc: WindowDesc<T>) {
+        if self.app_data_type == TypeId::of::<T>() {
+            self.submit_command(
+                Command::one_shot(commands::NEW_WINDOW, desc),
+                Target::Global,
+            );
+        } else {
+            const MSG: &str = "WindowDesc<T> - T must match the application data type.";
+            if cfg!(debug_assertions) {
+                panic!(MSG);
+            } else {
+                log::error!("DelegateCtx::new_window: {}", MSG)
+            }
+        }
+    }
+
+    /// Set the window's menu.
+    /// `T` must be the application's root `Data` type (the type provided to [`AppLauncher::launch`]).
+    ///
+    /// [`AppLauncher::launch`]: struct.AppLauncher.html#method.launch
+    pub fn set_menu<T: Any>(&mut self, menu: MenuDesc<T>, window: WindowId) {
+        if self.app_data_type == TypeId::of::<T>() {
+            self.submit_command(
+                Command::new(commands::SET_MENU, menu),
+                Target::Window(window),
+            );
+        } else {
+            const MSG: &str = "MenuDesc<T> - T must match the application data type.";
+            if cfg!(debug_assertions) {
+                panic!(MSG);
+            } else {
+                log::error!("DelegateCtx::set_menu: {}", MSG)
+            }
+        }
     }
 }
 

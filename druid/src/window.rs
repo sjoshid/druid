@@ -14,6 +14,7 @@
 
 //! Management of multiple windows.
 
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::mem;
 
@@ -206,6 +207,7 @@ impl<T: Data> Window<T> {
                 window: &self.handle,
                 window_id: self.id,
                 focus_widget: self.focus,
+                app_data_type: TypeId::of::<T>(),
             };
 
             self.root.event(&mut ctx, &event, data, env);
