@@ -29,11 +29,13 @@ use xcb::{
 };
 
 use crate::dialog::{FileDialogOptions, FileInfo};
+use crate::error::Error as ShellError;
 use crate::keyboard::{KeyEvent, KeyModifiers};
 use crate::keycodes::KeyCode;
 use crate::kurbo::{Point, Rect, Size, Vec2};
 use crate::mouse::{Cursor, MouseButton, MouseButtons, MouseEvent};
 use crate::piet::{Piet, RenderContext};
+use crate::scale::Scale;
 use crate::window::{IdleToken, Text, TimerToken, WinHandler};
 
 use super::application::Application;
@@ -292,7 +294,8 @@ impl Window {
             Ok(mut handler) => {
                 let size = self.size()?;
                 handler.connect(&handle.into());
-                handler.size(size.width as u32, size.height as u32);
+                handler.scale(Scale::default());
+                handler.size(size);
                 Ok(())
             }
             Err(err) => Err(Error::BorrowError(format!(
@@ -361,7 +364,7 @@ impl Window {
                 )));
             }
             match self.handler.try_borrow_mut() {
-                Ok(mut handler) => handler.size(size.width as u32, size.height as u32),
+                Ok(mut handler) => handler.size(size),
                 Err(err) => {
                     return Err(Error::BorrowError(format!(
                         "Window::set_size handler: {}",
@@ -507,9 +510,9 @@ impl Window {
         // TODO(x11/menus): implement Window::set_menu (currently a no-op)
     }
 
-    fn get_dpi(&self) -> f32 {
+    fn get_scale(&self) -> Result<Scale, Error> {
         // TODO(x11/dpi_scaling): figure out DPI scaling
-        96.0
+        Ok(Scale::from_dpi(96.0, 96.0))
     }
 
     pub fn handle_expose(&self, expose: &xcb::ExposeEvent) -> Result<(), Error> {
@@ -597,6 +600,47 @@ impl Window {
             }
             Err(err) => Err(Error::BorrowError(format!(
                 "Window::handle_button_release handle: {}",
+                err
+            ))),
+        }
+    }
+
+    pub fn handle_wheel(&self, event: &xcb::ButtonPressEvent) -> Result<(), Error> {
+        let button = event.detail();
+        let mods = key_mods(event.state());
+
+        // We use a delta of 120 per tick to match the behavior of Windows.
+        let delta = match button {
+            4 if mods.shift => (-120.0, 0.0),
+            4 => (0.0, -120.0),
+            5 if mods.shift => (120.0, 0.0),
+            5 => (0.0, 120.0),
+            6 => (-120.0, 0.0),
+            7 => (120.0, 0.0),
+            _ => {
+                return Err(Error::Generic(format!(
+                    "unexpected mouse wheel button: {}",
+                    button
+                )))
+            }
+        };
+        let mouse_event = MouseEvent {
+            pos: Point::new(event.event_x() as f64, event.event_y() as f64),
+            buttons: mouse_buttons(event.state()),
+            mods: key_mods(event.state()),
+            count: 0,
+            focus: false,
+            button: MouseButton::None,
+            wheel_delta: delta.into(),
+        };
+
+        match self.handler.try_borrow_mut() {
+            Ok(mut handler) => {
+                handler.wheel(&mouse_event);
+                Ok(())
+            }
+            Err(err) => Err(Error::BorrowError(format!(
+                "Window::handle_wheel handle: {}",
                 err
             ))),
         }
@@ -860,12 +904,12 @@ impl WindowHandle {
         Some(IdleHandle)
     }
 
-    pub fn get_dpi(&self) -> f32 {
+    pub fn get_scale(&self) -> Result<Scale, ShellError> {
         if let Some(w) = self.window.upgrade() {
-            w.get_dpi()
+            w.get_scale().map_err(ShellError::Platform)
         } else {
             log::error!("Window {} has already been dropped", self.id);
-            96.0
+            Ok(Scale::from_dpi(96.0, 96.0))
         }
     }
 }

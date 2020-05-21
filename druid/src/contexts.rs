@@ -24,8 +24,8 @@ use crate::core::{BaseState, CommandQueue, FocusChange};
 use crate::piet::Piet;
 use crate::piet::RenderContext;
 use crate::{
-    commands, Affine, Command, ContextMenu, Cursor, Insets, MenuDesc, Point, Rect, Size, Target,
-    Text, TimerToken, Vec2, WidgetId, WindowDesc, WindowHandle, WindowId,
+    commands, Affine, Command, ContextMenu, Cursor, Insets, MenuDesc, Point, Rect, SingleUse, Size,
+    Target, Text, TimerToken, Vec2, WidgetId, WindowDesc, WindowHandle, WindowId,
 };
 
 /// A mutable context provided to event handling methods of widgets.
@@ -62,6 +62,7 @@ pub struct LifeCycleCtx<'a> {
     pub(crate) command_queue: &'a mut CommandQueue,
     pub(crate) base_state: &'a mut BaseState,
     pub(crate) window_id: WindowId,
+    pub(crate) window: &'a WindowHandle,
 }
 
 /// A mutable context provided to data update methods of widgets.
@@ -91,6 +92,7 @@ pub struct LayoutCtx<'a, 'b: 'a> {
     pub(crate) base_state: &'a mut BaseState,
     pub(crate) text_factory: &'a mut Text<'b>,
     pub(crate) window_id: WindowId,
+    pub(crate) window: &'a WindowHandle,
     pub(crate) mouse_pos: Option<Point>,
 }
 
@@ -253,7 +255,7 @@ impl<'a> EventCtx<'a> {
     pub fn new_window<T: Any>(&mut self, desc: WindowDesc<T>) {
         if self.app_data_type == TypeId::of::<T>() {
             self.submit_command(
-                Command::one_shot(commands::NEW_WINDOW, desc),
+                Command::new(commands::NEW_WINDOW, SingleUse::new(desc)),
                 Target::Global,
             );
         } else {
@@ -354,16 +356,20 @@ impl<'a> EventCtx<'a> {
 
     /// Request keyboard focus.
     ///
-    /// Calling this when the widget is already focused does nothing.
+    /// Because only one widget can be focused at a time, multiple focus requests
+    /// from different widgets during a single event cycle means that the last
+    /// widget that requests focus will override the previous requests.
     ///
     /// See [`is_focused`] for more information about focus.
     ///
     /// [`is_focused`]: struct.EventCtx.html#method.is_focused
     pub fn request_focus(&mut self) {
+        // We need to send the request even if we're currently focused,
+        // because we may have a sibling widget that already requested focus
+        // and we have no way of knowing that yet. We need to override that
+        // to deliver on the "last focus request wins" promise.
         let id = self.widget_id();
-        if self.focus_widget != Some(id) {
-            self.base_state.request_focus = Some(FocusChange::Focus(id));
-        }
+        self.base_state.request_focus = Some(FocusChange::Focus(id));
     }
 
     /// Transfer focus to the next focusable widget.
@@ -546,6 +552,17 @@ impl<'a> LifeCycleCtx<'a> {
     pub fn request_anim_frame(&mut self) {
         self.base_state.request_anim = true;
         self.request_paint();
+    }
+
+    /// Request a timer event.
+    ///
+    /// The return value is a token, which can be used to associate the
+    /// request with the event.
+    pub fn request_timer(&mut self, deadline: Duration) -> TimerToken {
+        self.base_state.request_timer = true;
+        let timer_token = self.window.request_timer(deadline);
+        self.base_state.add_timer(timer_token);
+        timer_token
     }
 
     /// The layout size.

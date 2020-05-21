@@ -22,7 +22,7 @@ use std::rc::Rc;
 use crate::kurbo::{Rect, Size};
 use crate::piet::Piet;
 use crate::shell::{
-    Application, FileDialogOptions, IdleToken, MouseEvent, WinHandler, WindowHandle,
+    Application, FileDialogOptions, IdleToken, MouseEvent, Scale, WinHandler, WindowHandle,
 };
 
 use crate::app_delegate::{AppDelegate, DelegateCtx};
@@ -31,8 +31,8 @@ use crate::ext_event::ExtEventHost;
 use crate::menu::ContextMenu;
 use crate::window::Window;
 use crate::{
-    Command, Data, Env, Event, InternalEvent, KeyEvent, MenuDesc, Target, TimerToken, WindowDesc,
-    WindowId,
+    Command, Data, Env, Event, InternalEvent, KeyEvent, MenuDesc, SingleUse, Target, TimerToken,
+    WindowDesc, WindowId,
 };
 
 use crate::command::sys as sys_cmd;
@@ -591,7 +591,10 @@ impl<T: Data> AppState<T> {
     }
 
     fn new_window(&mut self, cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
-        let desc = cmd.take_object::<WindowDesc<T>>()?;
+        let desc = cmd.get_object::<SingleUse<WindowDesc<T>>>()?;
+        // The NEW_WINDOW command is private and only druid can receive it by normal means,
+        // thus unwrapping can be considered safe and deserves a panic.
+        let desc = desc.take().unwrap();
         let window = desc.build_native(self)?;
         window.show();
         Ok(())
@@ -648,9 +651,13 @@ impl<T: Data> WinHandler for DruidHandler<T> {
         self.app_state.paint_window(self.window_id, piet, rect)
     }
 
-    fn size(&mut self, width: u32, height: u32) {
-        let event = Event::WindowSize(Size::new(f64::from(width), f64::from(height)));
+    fn size(&mut self, size: Size) {
+        let event = Event::WindowSize(size);
         self.app_state.do_window_event(event, self.window_id);
+    }
+
+    fn scale(&mut self, _scale: Scale) {
+        // TODO: Do something with the scale
     }
 
     fn command(&mut self, id: u32) {

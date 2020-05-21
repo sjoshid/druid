@@ -156,6 +156,7 @@ impl<T: Data> Window<T> {
         env: &Env,
     ) -> bool {
         match &event {
+            Event::WindowSize(size) => self.size = *size,
             Event::MouseDown(e) | Event::MouseUp(e) | Event::MouseMove(e) | Event::Wheel(e) => {
                 self.last_mouse_pos = Some(e.pos)
             }
@@ -169,12 +170,6 @@ impl<T: Data> Window<T> {
         };
 
         let event = match event {
-            Event::WindowSize(size) => {
-                let dpi = f64::from(self.handle.get_dpi());
-                let scale = 96.0 / dpi;
-                self.size = Size::new(size.width * scale, size.height * scale);
-                Event::WindowSize(self.size)
-            }
             Event::Timer(token) => {
                 if let Some(widget_id) = self.timers.get(&token) {
                     Event::Internal(InternalEvent::RouteTimer(token, *widget_id))
@@ -217,9 +212,12 @@ impl<T: Data> Window<T> {
         if let Some(focus_req) = base_state.request_focus.take() {
             let old = self.focus;
             let new = self.widget_for_focus_request(focus_req);
-            let event = LifeCycle::Internal(InternalLifeCycle::RouteFocusChanged { old, new });
-            self.lifecycle(queue, &event, data, env, false);
-            self.focus = new;
+            // Only send RouteFocusChanged in case there's actual change
+            if old != new {
+                let event = LifeCycle::Internal(InternalLifeCycle::RouteFocusChanged { old, new });
+                self.lifecycle(queue, &event, data, env, false);
+                self.focus = new;
+            }
         }
 
         if let Some(cursor) = cursor {
@@ -250,16 +248,17 @@ impl<T: Data> Window<T> {
         env: &Env,
         process_commands: bool,
     ) {
-        let mut base_state = BaseState::new(self.root.id());
-        let mut ctx = LifeCycleCtx {
-            command_queue: queue,
-            window_id: self.id,
-            base_state: &mut base_state,
-        };
-
         if let LifeCycle::AnimFrame(_) = event {
-            self.do_anim_frame(&mut ctx, data, env)
+            self.do_anim_frame(queue, data, env)
         } else {
+            let mut base_state = BaseState::new(self.root.id());
+            let mut ctx = LifeCycleCtx {
+                command_queue: queue,
+                window_id: self.id,
+                window: &self.handle,
+                base_state: &mut base_state,
+            };
+
             self.root.lifecycle(&mut ctx, event, data, env);
         }
 
@@ -267,7 +266,15 @@ impl<T: Data> Window<T> {
     }
 
     /// AnimFrame has special logic, so we implement it separately.
-    fn do_anim_frame(&mut self, ctx: &mut LifeCycleCtx, data: &T, env: &Env) {
+    fn do_anim_frame(&mut self, queue: &mut CommandQueue, data: &T, env: &Env) {
+        let mut base_state = BaseState::new(self.root.id());
+        let mut ctx = LifeCycleCtx {
+            command_queue: queue,
+            window_id: self.id,
+            window: &self.handle,
+            base_state: &mut base_state,
+        };
+
         // TODO: this calculation uses wall-clock time of the paint call, which
         // potentially has jitter.
         //
@@ -277,7 +284,7 @@ impl<T: Data> Window<T> {
         let elapsed_ns = last.map(|t| now.duration_since(t).as_nanos()).unwrap_or(0) as u64;
 
         let event = LifeCycle::AnimFrame(elapsed_ns);
-        self.root.lifecycle(ctx, &event, data, env);
+        self.root.lifecycle(&mut ctx, &event, data, env);
         if ctx.base_state.request_anim {
             self.last_anim = Some(now);
         }
@@ -340,6 +347,7 @@ impl<T: Data> Window<T> {
             base_state: &mut base_state,
             text_factory: piet.text(),
             window_id: self.id,
+            window: &self.handle,
             mouse_pos: self.last_mouse_pos,
         };
         let bc = BoxConstraints::tight(self.size);

@@ -71,6 +71,8 @@ pub enum Event {
     ///
     /// The `MouseMove` event is propagated to the active widget, if
     /// there is one, otherwise to hot widgets (see `HotChanged`).
+    /// If a widget loses its hot status due to `MouseMove` then that specific
+    /// `MouseMove` event is also still sent to that widget.
     ///
     /// The `MouseMove` event is also the primary mechanism for widgets
     /// to set a cursor, for example to an I-bar inside a text widget. A
@@ -80,6 +82,8 @@ pub enum Event {
     ///
     /// [`set_cursor`]: struct.EventCtx.html#method.set_cursor
     MouseMove(MouseEvent),
+    /// Called when the mouse wheel or trackpad is scrolled.
+    Wheel(MouseEvent),
     /// Called when a key is pressed.
     ///
     /// Note: the intent is for each physical key press to correspond to
@@ -95,8 +99,6 @@ pub enum Event {
     KeyUp(KeyEvent),
     /// Called when a paste command is received.
     Paste(Clipboard),
-    /// Called when the mouse wheel or trackpad is scrolled.
-    Wheel(MouseEvent),
     /// Called when the trackpad is pinched.
     ///
     /// The value is a delta.
@@ -178,6 +180,14 @@ pub enum LifeCycle {
     /// [`WidgetPod`]: struct.WidgetPod.html
     /// [`LifeCycleCtx::register_for_focus`]: struct.LifeCycleCtx.html#method.register_for_focus
     WidgetAdded,
+    /// Called when the size of the widget changes.
+    ///
+    /// The [`Size`] is derived from the [`Rect`] that was set with [`WidgetPod::set_layout_rect`].
+    ///
+    /// [`Size`]: struct.Size.html
+    /// [`Rect`]: struct.Rect.html
+    /// [`WidgetPod::set_layout_rect`]: struct.WidgetPod.html#method.set_layout_rect
+    Size(Size),
     /// Called at the beginning of a new animation frame.
     ///
     /// On the first frame when transitioning from idle to animating, `interval`

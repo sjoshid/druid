@@ -19,11 +19,14 @@ use crate::kurbo::{Point, Vec2};
 use crate::keyboard::KeyModifiers;
 
 /// Information about the mouse event.
+///
+/// Every mouse event can have a new position. There is no guarantee of
+/// receiving a move event before another mouse event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MouseEvent {
-    /// The location of the mouse in the current window.
+    /// The location of the mouse in [display points] in relation to the current window.
     ///
-    /// This is in px units not device pixels, that is, adjusted for hi-dpi.
+    /// [display points]: struct.Scale.html
     pub pos: Point,
     /// Mouse buttons being held down during a move or after a click event.
     /// Thus it will contain the `button` that triggered a mouse-down event,

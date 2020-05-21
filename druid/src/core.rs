@@ -15,6 +15,7 @@
 //! The fundamental druid types.
 
 use std::collections::{HashMap, VecDeque};
+use std::mem;
 
 use crate::bloom::Bloom;
 use crate::kurbo::{Affine, Insets, Point, Rect, Shape, Size, Vec2};
@@ -24,7 +25,7 @@ use crate::piet::{
 use crate::{
     BoxConstraints, Color, Command, Data, Env, Event, EventCtx, InternalEvent, InternalLifeCycle,
     LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Region, Target, TimerToken, UpdateCtx, Widget,
-    WidgetId, WindowId,
+    WidgetId, WindowHandle, WindowId,
 };
 
 /// Our queue type
@@ -188,24 +189,54 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
         self.state.id
     }
 
-    /// Set layout rectangle.
+    /// Set the layout [`Rect`].
     ///
-    /// Intended to be called on child widget in container's `layout`
-    /// implementation.
+    /// A container widget should call the [`Widget::layout`] method on its children in
+    /// its own [`Widget::layout`] implementation, then possibly modify the returned [`Size`], and
+    /// finally call this `set_layout_rect` method on the child to set the final layout [`Rect`].
+    ///
+    /// The child will receive the [`LifeCycle::Size`] event informing them of the final [`Size`].
+    ///
+    /// [`Widget::layout`]: trait.Widget.html#tymethod.layout
+    /// [`Rect`]: struct.Rect.html
+    /// [`Size`]: struct.Size.html
+    /// [`LifeCycle::Size`]: enum.LifeCycle.html#variant.Size
     pub fn set_layout_rect(&mut self, ctx: &mut LayoutCtx, data: &T, env: &Env, layout_rect: Rect) {
+        let mut needs_merge = false;
+
+        let old_size = self.state.layout_rect.map(|r| r.size());
+        let new_size = layout_rect.size();
+
         self.state.layout_rect = Some(layout_rect);
+
+        if old_size.is_none() || old_size.unwrap() != new_size {
+            let mut child_ctx = LifeCycleCtx {
+                command_queue: ctx.command_queue,
+                base_state: &mut self.state,
+                window_id: ctx.window_id,
+                window: ctx.window,
+            };
+            let size_event = LifeCycle::Size(new_size);
+            self.inner.lifecycle(&mut child_ctx, &size_event, data, env);
+            needs_merge = true;
+        }
 
         if WidgetPod::set_hot_state(
             &mut self.inner,
             ctx.command_queue,
             &mut self.state,
             ctx.window_id,
+            ctx.window,
             layout_rect,
             ctx.mouse_pos,
             data,
             env,
         ) {
-            ctx.base_state.merge_up(&self.state);
+            needs_merge = true;
+        }
+
+        if needs_merge {
+            ctx.base_state.merge_up(&mut self.state);
         }
     }
 
@@ -215,9 +246,12 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
         self.layout_rect()
     }
 
-    /// The layout rectangle.
+    /// Returns the layout [`Rect`].
     ///
-    /// This will be same value as set by `set_layout_rect`.
+    /// This will be the same [`Rect`] that was set by [`set_layout_rect`].
+    ///
+    /// [`Rect`]: struct.Rect.html
+    /// [`set_layout_rect`]: #method.set_layout_rect
     pub fn layout_rect(&self) -> Rect {
         self.state.layout_rect.unwrap_or_default()
     }
@@ -303,6 +337,7 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
         command_queue: &mut CommandQueue,
         child_state: &mut BaseState,
         window_id: WindowId,
+        window: &WindowHandle,
         rect: Rect,
         mouse_pos: Option<Point>,
         data: &T,
@@ -319,6 +354,7 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
                 command_queue,
                 base_state: child_state,
                 window_id,
+                window,
             };
             child.lifecycle(&mut child_ctx, &hot_changed_event, data, env);
             // if hot changes and we're showing widget ids, always repaint
@@ -484,12 +520,13 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             command_queue: ctx.command_queue,
             base_state: &mut self.state,
             window_id: ctx.window_id,
+            window: ctx.window,
             text_factory: ctx.text_factory,
             mouse_pos: child_mouse_pos,
         };
         let size = self.inner.layout(&mut child_ctx, bc, data, env);
 
-        ctx.base_state.merge_up(&child_ctx.base_state);
+        ctx.base_state.merge_up(&mut child_ctx.base_state);
 
         if size.width.is_infinite() {
             let name = self.widget().type_name();
@@ -569,6 +606,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                         child_ctx.command_queue,
                         child_ctx.base_state,
                         child_ctx.window_id,
+                        child_ctx.window,
                         rect,
                         None,
                         data,
@@ -616,6 +654,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                     child_ctx.command_queue,
                     child_ctx.base_state,
                     child_ctx.window_id,
+                    child_ctx.window,
                     rect,
                     Some(mouse_event.pos),
                     data,
@@ -632,6 +671,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                     child_ctx.command_queue,
                     child_ctx.base_state,
                     child_ctx.window_id,
+                    child_ctx.window,
                     rect,
                     Some(mouse_event.pos),
                     data,
@@ -648,15 +688,36 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                     child_ctx.command_queue,
                     child_ctx.base_state,
                     child_ctx.window_id,
+                    child_ctx.window,
                     rect,
                     Some(mouse_event.pos),
                     data,
                     env,
                 );
+                // MouseMove is recursed even if the widget is not active and not hot,
+                // but was hot previously. This is to allow the widget to respond to the movement,
+                // e.g. drag functionality where the widget wants to follow the mouse.
                 recurse = had_active || child_ctx.base_state.is_hot || hot_changed;
                 let mut mouse_event = mouse_event.clone();
                 mouse_event.pos -= rect.origin().to_vec2();
                 Event::MouseMove(mouse_event)
+            }
+            Event::Wheel(mouse_event) => {
+                WidgetPod::set_hot_state(
+                    &mut self.inner,
+                    child_ctx.command_queue,
+                    child_ctx.base_state,
+                    child_ctx.window_id,
+                    child_ctx.window,
+                    rect,
+                    Some(mouse_event.pos),
+                    data,
+                    env,
+                );
+                recurse = had_active || child_ctx.base_state.is_hot;
+                let mut mouse_event = mouse_event.clone();
+                mouse_event.pos -= rect.origin().to_vec2();
+                Event::Wheel(mouse_event)
             }
             Event::KeyDown(e) => {
                 recurse = child_ctx.has_focus();
@@ -669,12 +730,6 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             Event::Paste(e) => {
                 recurse = child_ctx.has_focus();
                 Event::Paste(e.clone())
-            }
-            Event::Wheel(wheel_event) => {
-                recurse = had_active || child_ctx.base_state.is_hot;
-                let mut wheel_event = wheel_event.clone();
-                wheel_event.pos -= rect.origin().to_vec2();
-                Event::Wheel(wheel_event)
             }
             Event::Zoom(zoom) => {
                 recurse = had_active || child_ctx.base_state.is_hot;
@@ -692,9 +747,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             child_ctx.base_state.has_active |= child_ctx.base_state.is_active;
         };
 
-        ctx.base_state.merge_up(&child_ctx.base_state);
-        // Clear current widget's timers after merging with parent.
-        child_ctx.base_state.timers.clear();
+        ctx.base_state.merge_up(&mut child_ctx.base_state);
         ctx.is_handled |= child_ctx.is_handled;
     }
 
@@ -722,8 +775,6 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                     }
                 }
                 InternalLifeCycle::RouteFocusChanged { old, new } => {
-                    self.state.request_focus = None;
-
                     let this_changed = if *old == Some(self.state.id) {
                         Some(false)
                     } else if *new == Some(self.state.id) {
@@ -733,11 +784,8 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                     };
 
                     if let Some(change) = this_changed {
-                        // Only send FocusChanged in case there's actual change
-                        if old != new {
-                            self.state.has_focus = change;
-                            extra_event = Some(LifeCycle::FocusChanged(change));
-                        }
+                        self.state.has_focus = change;
+                        extra_event = Some(LifeCycle::FocusChanged(change));
                     } else {
                         self.state.has_focus = false;
                     }
@@ -780,6 +828,11 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
 
                 true
             }
+            LifeCycle::Size(_) => {
+                // We are a descendant of a widget that received the Size event.
+                // This event was meant only for our parent, so don't recurse.
+                false
+            }
             //NOTE: this is not sent here, but from the special set_hot_state method
             LifeCycle::HotChanged(_) => false,
             LifeCycle::FocusChanged(_) => {
@@ -793,6 +846,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             command_queue: ctx.command_queue,
             base_state: &mut self.state,
             window_id: ctx.window_id,
+            window: ctx.window,
         };
 
         if recurse {
@@ -803,7 +857,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             self.inner.lifecycle(&mut child_ctx, event, data, env);
         }
 
-        ctx.base_state.merge_up(&self.state);
+        ctx.base_state.merge_up(&mut self.state);
 
         // we need to (re)register children in case of one of the following events
         match event {
@@ -847,7 +901,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         self.old_data = Some(data.clone());
         self.env = Some(env.clone());
 
-        ctx.base_state.merge_up(&self.state)
+        ctx.base_state.merge_up(&mut self.state)
     }
 }
 
@@ -889,7 +943,9 @@ impl BaseState {
     }
 
     /// Update to incorporate state changes from a child.
-    fn merge_up(&mut self, child_state: &BaseState) {
+    ///
+    /// This will also clear some requests in the child state.
+    fn merge_up(&mut self, child_state: &mut BaseState) {
         let mut child_region = child_state.invalid.clone();
         child_region += child_state.layout_rect().origin().to_vec2() - child_state.viewport_offset;
         let clip = self
@@ -905,8 +961,15 @@ impl BaseState {
         self.has_active |= child_state.has_active;
         self.has_focus |= child_state.has_focus;
         self.children_changed |= child_state.children_changed;
-        self.request_focus = self.request_focus.or(child_state.request_focus);
-        self.timers.extend(&child_state.timers);
+        self.request_focus = child_state.request_focus.take().or(self.request_focus);
+
+        if !child_state.timers.is_empty() {
+            if self.timers.is_empty() {
+                mem::swap(&mut self.timers, &mut child_state.timers);
+            } else {
+                self.timers.extend(&mut child_state.timers.drain());
+            }
+        }
     }
 
     #[inline]
@@ -959,6 +1022,7 @@ mod tests {
             command_queue: &mut command_queue,
             base_state: &mut state,
             window_id: WindowId::next(),
+            window: &WindowHandle::default(),
         };
 
         let env = Env::default();
