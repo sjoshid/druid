@@ -17,7 +17,7 @@ fn ui_builder() -> impl Widget<Directory> {
         .lens(Directory::persons),
         1.0,
     );
-    root
+    root.debug_paint_layout()
 }
 
 pub fn main() {
