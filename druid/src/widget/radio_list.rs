@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 pub struct RadioList<T> {
     add_closure: Box<dyn Fn(&T, &Env) -> Label<T>>,
     children: Vec<WidgetPod<T, MyRadio<T>>>,
+    selected_radio_index: u64,
 }
 
 impl<T: Data + PartialEq> RadioList<T> {
@@ -12,6 +13,7 @@ impl<T: Data + PartialEq> RadioList<T> {
         RadioList {
             add_closure: Box::new(closure),
             children: Vec::new(),
+            selected_radio_index: 0,
         }
     }
 
@@ -35,13 +37,22 @@ impl<T: Data + PartialEq> RadioList<T> {
 }
 
 impl<C: Data + PartialEq, T: ListIter<C>> Widget<T> for RadioList<C> {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {}
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+        println!("Event {:?}", event);
+    }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
-        println!("lifecycle children {}", self.children.len());
+        println!("lifecycle event {:?}", event);
         if let LifeCycle::WidgetAdded = event {
             if self.update_child_count(data, env) {
                 ctx.children_changed();
+            }
+            // When this widget is added, by default we select first radio.
+            if self.children.len() > 0 {
+                let selected_radio = self.selected_radio_index;
+                let first_radio = self.children.get_mut(selected_radio as usize).unwrap();
+                let inner_first_radio = first_radio.widget_mut();
+                inner_first_radio.selected = true;
             }
         }
     }

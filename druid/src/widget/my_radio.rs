@@ -9,12 +9,14 @@ use crate::{
 /// Radio without variant.
 pub struct MyRadio<T> {
     child_label: WidgetPod<T, Box<dyn Widget<T>>>,
+    pub(crate) selected: bool,
 }
 
 impl<T: Data> MyRadio<T> {
     pub fn new(label: Label<T>) -> MyRadio<T> {
         MyRadio {
             child_label: WidgetPod::new(label.boxed()),
+            selected: false,
         }
     }
 }
@@ -95,10 +97,11 @@ impl<T: Data + PartialEq> Widget<T> for MyRadio<T> {
 
         ctx.stroke(circle, &border_color, 1.);
 
-        // Check if data enum matches our variant
-        let inner_circle = Circle::new((size / 2., size / 2.), 2.);
 
-        ctx.fill(inner_circle, &env.get(theme::LABEL_COLOR));
+        if self.selected {
+            let inner_circle = Circle::new((size / 2., size / 2.), 2.);
+            ctx.fill(inner_circle, &env.get(theme::LABEL_COLOR));
+        }
 
         // Paint the text label
         self.child_label.paint_with_offset(ctx, data, env);
