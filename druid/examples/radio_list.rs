@@ -1,4 +1,4 @@
-use druid::widget::{Flex, MyRadio, RadioList, Scroll, WidgetExt};
+use druid::widget::{Flex, Label, MyRadio, RadioList, Scroll, WidgetExt};
 use druid::{AppLauncher, Data, Lens, LocalizedString, Widget, WindowDesc};
 use std::sync::Arc;
 
@@ -11,8 +11,8 @@ struct Directory {
 fn ui_builder() -> impl Widget<Directory> {
     let mut root = Flex::column();
     root.add_flex_child(
-        Scroll::new(RadioList::new(|| {
-            MyRadio::new(|item: &String, _env: &_| format!("List item #{}", item))
+        Scroll::new(RadioList::new(|item: &String, _env: &_| {
+            Label::new(item.clone())
         }))
         .lens(Directory::persons),
         1.0,

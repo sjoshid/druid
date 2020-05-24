@@ -12,9 +12,9 @@ pub struct MyRadio<T> {
 }
 
 impl<T: Data> MyRadio<T> {
-    pub fn new(label: impl Into<LabelText<T>>) -> MyRadio<T> {
+    pub fn new(label: Label<T>) -> MyRadio<T> {
         MyRadio {
-            child_label: WidgetPod::new(Label::new(label).boxed()),
+            child_label: WidgetPod::new(label.boxed()),
         }
     }
 }
