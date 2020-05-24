@@ -19,6 +19,7 @@ features = ["im"]
 default-target = "x86_64-pc-windows-msvc"
 
 [features]
+default = ["im"]
 x11 = ["druid-shell/x11"]
 svg = ["usvg"]
 
