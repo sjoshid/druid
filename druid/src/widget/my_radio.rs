@@ -5,18 +5,22 @@ use crate::{
     BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, LinearGradient,
     PaintCtx, RenderContext, UnitPoint, UpdateCtx, Widget, WidgetExt, WidgetPod,
 };
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Radio without variant.
 pub struct MyRadio<T> {
     child_label: WidgetPod<T, Box<dyn Widget<T>>>,
-    pub(crate) selected: bool,
+    my_index: usize,
+    selected_in_list: Rc<RefCell<usize>>,
 }
 
 impl<T: Data> MyRadio<T> {
-    pub fn new(label: Label<T>) -> MyRadio<T> {
+    pub fn new(label: Label<T>, my_index: usize, selected_in_list: Rc<RefCell<usize>>,) -> MyRadio<T> {
         MyRadio {
             child_label: WidgetPod::new(label.boxed()),
-            selected: false,
+            my_index,
+            selected_in_list,
         }
     }
 }
@@ -25,16 +29,18 @@ impl<T: Data + PartialEq> Widget<T> for MyRadio<T> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, _env: &Env) {
         match event {
             Event::MouseDown(_) => {
+                println!("Mouse down");
                 ctx.set_active(true);
-                ctx.request_paint();
+                let my_index = self.my_index;
+                *self.selected_in_list.borrow_mut() = my_index;
             }
             Event::MouseUp(_) => {
+                println!("Mouse up");
                 if ctx.is_active() {
                     ctx.set_active(false);
                     if ctx.is_hot() {
                         //*data = self.variant.clone();
                     }
-                    ctx.request_paint();
                 }
             }
             _ => (),
@@ -97,8 +103,10 @@ impl<T: Data + PartialEq> Widget<T> for MyRadio<T> {
 
         ctx.stroke(circle, &border_color, 1.);
 
+        let my_index = self.my_index;
+        let current_selected = self.selected_in_list.borrow();
 
-        if self.selected {
+        if my_index == *current_selected {
             let inner_circle = Circle::new((size / 2., size / 2.), 2.);
             ctx.fill(inner_circle, &env.get(theme::LABEL_COLOR));
         }

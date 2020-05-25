@@ -5,7 +5,6 @@ use std::sync::Arc;
 #[derive(Clone, Data, Lens)]
 struct Directory {
     persons: Arc<Vec<String>>,
-    selected_person: u64,
 }
 
 fn ui_builder() -> impl Widget<Directory> {
@@ -26,7 +25,6 @@ pub fn main() {
 
     let directory = Directory {
         persons: Arc::new(vec![String::from("Sujit"), String::from("Morgan")]),
-        selected_person: 0,
     };
 
     AppLauncher::with_window(main_window)

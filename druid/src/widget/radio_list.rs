@@ -1,11 +1,13 @@
 use crate::widget::{Label, LabelText, List, ListIter, MyRadio};
 use crate::{BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Rect, Size, UpdateCtx, Widget, Point, WidgetPod};
 use std::cmp::Ordering;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 pub struct RadioList<T> {
     add_closure: Box<dyn Fn(&T, &Env) -> Label<T>>,
     children: Vec<WidgetPod<T, MyRadio<T>>>,
-    selected_radio_index: u64,
+    selected_radio_index: Rc<RefCell<usize>>,
 }
 
 impl<T: Data + PartialEq> RadioList<T> {
@@ -13,7 +15,7 @@ impl<T: Data + PartialEq> RadioList<T> {
         RadioList {
             add_closure: Box::new(closure),
             children: Vec::new(),
-            selected_radio_index: 0,
+            selected_radio_index: Rc::new(RefCell::new(0)),
         }
     }
 
@@ -25,7 +27,7 @@ impl<T: Data + PartialEq> RadioList<T> {
             Ordering::Less => data.for_each(|child_data, i| {
                 if i >= len {
                     let my_label = (self.add_closure)(child_data, env);
-                    let mut my_radio = MyRadio::new(my_label);
+                    let mut my_radio = MyRadio::new(my_label, i, Rc::clone(&self.selected_radio_index));
                     let child = WidgetPod::new(my_radio);
                     self.children.push(child);
                 }
@@ -38,30 +40,37 @@ impl<T: Data + PartialEq> RadioList<T> {
 
 impl<C: Data + PartialEq, T: ListIter<C>> Widget<T> for RadioList<C> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
-        println!("Event {:?}", event);
+        let mut children = self.children.iter_mut();
+        data.for_each_mut(|child_data, _| {
+            if let Some(child) = children.next() {
+                child.event(ctx, event, child_data, env);
+            }
+        });
+        ctx.request_paint();
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
-        println!("lifecycle event {:?}", event);
         if let LifeCycle::WidgetAdded = event {
             if self.update_child_count(data, env) {
+                let mut children = self.children.iter_mut();
+                data.for_each(|child_data, _| {
+                    if let Some(child) = children.next() {
+                        child.lifecycle(ctx, event, child_data, env);
+                    }
+                });
                 ctx.children_changed();
-            }
-            // When this widget is added, by default we select first radio.
-            if self.children.len() > 0 {
-                let selected_radio = self.selected_radio_index;
-                let first_radio = self.children.get_mut(selected_radio as usize).unwrap();
-                let inner_first_radio = first_radio.widget_mut();
-                inner_first_radio.selected = true;
             }
         }
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
         println!("update children {}", self.children.len());
-        if self.update_child_count(data, env) {
-            ctx.children_changed();
-        }
+        let mut children = self.children.iter_mut();
+        data.for_each(|child_data, _| {
+            if let Some(child) = children.next() {
+                child.update(ctx, child_data, env);
+            }
+        });
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) -> Size {
