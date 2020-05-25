@@ -1,8 +1,11 @@
 use crate::widget::{Label, LabelText, List, ListIter, MyRadio};
-use crate::{BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Rect, Size, UpdateCtx, Widget, Point, WidgetPod};
+use crate::{
+    BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx,
+    Point, Rect, Size, UpdateCtx, Widget, WidgetPod,
+};
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
-use std::cell::RefCell;
 
 pub struct RadioList<T> {
     add_closure: Box<dyn Fn(&T, &Env) -> Label<T>>,
@@ -27,7 +30,8 @@ impl<T: Data + PartialEq> RadioList<T> {
             Ordering::Less => data.for_each(|child_data, i| {
                 if i >= len {
                     let my_label = (self.add_closure)(child_data, env);
-                    let mut my_radio = MyRadio::new(my_label, i, Rc::clone(&self.selected_radio_index));
+                    let mut my_radio =
+                        MyRadio::new(my_label, i, Rc::clone(&self.selected_radio_index));
                     let child = WidgetPod::new(my_radio);
                     self.children.push(child);
                 }
@@ -64,13 +68,16 @@ impl<C: Data + PartialEq, T: ListIter<C>> Widget<T> for RadioList<C> {
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
-        println!("update children {}", self.children.len());
-        let mut children = self.children.iter_mut();
-        data.for_each(|child_data, _| {
-            if let Some(child) = children.next() {
-                child.update(ctx, child_data, env);
-            }
-        });
+        if self.update_child_count(data, env) {
+            println!("update children {}", self.children.len());
+            let mut children = self.children.iter_mut();
+            data.for_each(|child_data, _| {
+                if let Some(child) = children.next() {
+                    child.update(ctx, child_data, env);
+                }
+            });
+            ctx.children_changed();
+        }
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) -> Size {
