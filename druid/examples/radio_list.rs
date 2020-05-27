@@ -2,12 +2,13 @@ use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
 
 use druid::im::{vector, Vector};
-use druid::widget::{Button, Flex, Label, MyRadio, RadioList, Scroll, WidgetExt};
+use druid::widget::{Button, Flex, Label, MyRadio, RadioList, Scroll, WidgetExt, TextBox};
 use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, UnitPoint, Widget, WindowDesc};
 
 #[derive(Clone, Data, Lens)]
 struct Directory {
     persons: Vector<String>,
+    to_be_added: String,
 }
 
 fn ui_builder() -> impl Widget<Directory> {
@@ -20,18 +21,25 @@ fn ui_builder() -> impl Widget<Directory> {
         .lens(Directory::persons),
         1.0,
     );
-    root.add_child(
+    let mut add_delete = Flex::row();
+    add_delete.add_child(
         Button::new("Add")
-            .on_click(|_ctx, persons: &mut Vector<String>, _env| {
-                persons.push_back(String::from("Nekko"));
-                /*let persons_vec = persons.borrow_mut();
-                persons_vec.push(String::from("Nekko"));*/
-                println!("size is {}", persons.len())
+            .on_click(|_ctx, persons: &mut Directory, _env| {
+                let mut names = &mut persons.persons;
+                let to_be_added = persons.to_be_added.clone();
+                names.push_back(to_be_added);
+
+                //reset
+                persons.to_be_added = String::from("");
             })
-            .lens(Directory::persons)
             .fix_size(80.0, 20.0)
             .align_vertical(UnitPoint::CENTER),
     );
+    add_delete.add_child(
+        TextBox::new()
+            .lens(Directory::to_be_added)
+    );
+    root.add_child(add_delete);
     root.debug_paint_layout()
 }
 
@@ -41,6 +49,7 @@ pub fn main() {
 
     let directory = Directory {
         persons: vector![String::from("Sujit"), String::from("Morgan")],
+        to_be_added: String::from(""),
     };
 
     AppLauncher::with_window(main_window)
