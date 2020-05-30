@@ -1,11 +1,13 @@
 use crate::widget::{Label, LabelText, List, ListIter, MyRadio};
 use crate::{
     BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx,
-    Point, Rect, Size, UpdateCtx, Widget, WidgetPod,
+    Point, Rect, Selector, Size, UpdateCtx, Widget, WidgetPod,
 };
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
+
+pub const DELETE_SELECTED_NAME: Selector = Selector::new("delete-selected-action");
 
 pub struct RadioList<T> {
     add_closure: Box<dyn Fn(&T, &Env) -> Label<T>>,
@@ -44,13 +46,28 @@ impl<T: Data + PartialEq> RadioList<T> {
 
 impl<C: Data + PartialEq, T: ListIter<C>> Widget<T> for RadioList<C> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
-        let mut children = self.children.iter_mut();
-        data.for_each_mut(|child_data, _| {
-            if let Some(child) = children.next() {
-                child.event(ctx, event, child_data, env);
+        match event {
+            Event::Command(command) => {
+                if command.is(DELETE_SELECTED_NAME) {
+                    println!(
+                        "Deleting selected {}",
+                        *self.selected_radio_index.borrow_mut()
+                    );
+                    self.children
+                        .remove(*self.selected_radio_index.borrow_mut());
+                    ctx.request_paint();
+                }
             }
-        });
-        ctx.request_paint();
+            _ => {
+                let mut children = self.children.iter_mut();
+                data.for_each_mut(|child_data, _| {
+                    if let Some(child) = children.next() {
+                        child.event(ctx, event, child_data, env);
+                    }
+                });
+                ctx.request_paint();
+            }
+        }
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
@@ -116,7 +133,7 @@ impl<C: Data + PartialEq, T: ListIter<C>> Widget<T> for RadioList<C> {
         let mut children = self.children.iter_mut();
         data.for_each(|child_data, _| {
             if let Some(child) = children.next() {
-                child.paint_with_offset(ctx, child_data, env);
+                child.paint(ctx, child_data, env);
             }
         });
     }

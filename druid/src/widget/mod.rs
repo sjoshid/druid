@@ -37,7 +37,7 @@ mod painter;
 mod parse;
 mod progress_bar;
 mod radio;
-mod radio_list;
+pub mod radio_list;
 mod scroll;
 mod sized_box;
 mod slider;

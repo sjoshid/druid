@@ -16,7 +16,11 @@ pub struct MyRadio<T> {
 }
 
 impl<T: Data> MyRadio<T> {
-    pub fn new(label: Label<T>, my_index: usize, selected_in_list: Rc<RefCell<usize>>,) -> MyRadio<T> {
+    pub fn new(
+        label: Label<T>,
+        my_index: usize,
+        selected_in_list: Rc<RefCell<usize>>,
+    ) -> MyRadio<T> {
         MyRadio {
             child_label: WidgetPod::new(label.boxed()),
             my_index,
@@ -112,6 +116,6 @@ impl<T: Data + PartialEq> Widget<T> for MyRadio<T> {
         }
 
         // Paint the text label
-        self.child_label.paint_with_offset(ctx, data, env);
+        self.child_label.paint(ctx, data, env);
     }
 }

@@ -2,8 +2,11 @@ use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
 
 use druid::im::{vector, Vector};
-use druid::widget::{Button, Flex, Label, MyRadio, RadioList, Scroll, WidgetExt, TextBox};
-use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, UnitPoint, Widget, WindowDesc};
+use druid::widget::{Button, Flex, Label, MyRadio, Radio, RadioList, Scroll, TextBox, WidgetExt};
+use druid::{
+    AppLauncher, Data, Lens, LensExt, LocalizedString, Selector, Target, UnitPoint, Widget,
+    WidgetId, WindowDesc,
+};
 
 #[derive(Clone, Data, Lens)]
 struct Directory {
@@ -13,14 +16,17 @@ struct Directory {
 
 fn ui_builder() -> impl Widget<Directory> {
     let mut root = Flex::column();
+    let radio_list_widget_id = WidgetId::reserved(11111);
     root.add_flex_child(
-        Scroll::new(RadioList::new(|item: &String, _env: &_| {
-            Label::new(item.clone())
-        }))
-        .align_left()
-        .lens(Directory::persons),
+        Scroll::new(
+            RadioList::new(|item: &String, _env: &_| Label::new(item.clone()))
+                .lens(Directory::persons)
+                .with_id(radio_list_widget_id),
+        )
+        .align_left(),
         1.0,
     );
+
     let mut add_delete = Flex::row();
     add_delete.add_child(
         Button::new("Add")
@@ -35,10 +41,13 @@ fn ui_builder() -> impl Widget<Directory> {
             .fix_size(80.0, 20.0)
             .align_vertical(UnitPoint::CENTER),
     );
-    add_delete.add_child(
-        TextBox::new()
-            .lens(Directory::to_be_added)
-    );
+    add_delete.add_child(TextBox::new().lens(Directory::to_be_added));
+    add_delete.add_child(Button::new("Delete").on_click(move |ctx, _data, _env| {
+        ctx.submit_command(
+            druid::widget::radio_list::DELETE_SELECTED_NAME,
+            Target::Widget(radio_list_widget_id),
+        )
+    }));
     root.add_child(add_delete);
     root.debug_paint_layout()
 }
