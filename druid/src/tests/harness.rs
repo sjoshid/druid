@@ -16,7 +16,7 @@
 
 use std::path::Path;
 
-use crate::core::{BaseState, CommandQueue};
+use crate::core::{CommandQueue, WidgetState};
 use crate::piet::{BitmapTarget, Device, Error, ImageFormat, Piet};
 use crate::*;
 
@@ -157,7 +157,6 @@ impl<T: Data> Harness<'_, T> {
                 window_size,
             };
             harness_closure(&mut harness);
-            harness.piet.finish().expect("piet finish failed");
         }
         render_context_closure(target)
     }
@@ -182,16 +181,16 @@ impl<T: Data> Harness<'_, T> {
         &self.inner.data
     }
 
-    /// Retrieve a copy of this widget's `BaseState`, or die trying.
-    pub(crate) fn get_state(&mut self, widget: WidgetId) -> BaseState {
+    /// Retrieve a copy of this widget's `WidgetState`, or die trying.
+    pub(crate) fn get_state(&mut self, widget: WidgetId) -> WidgetState {
         match self.try_get_state(widget) {
             Some(thing) => thing,
             None => panic!("get_state failed for widget {:?}", widget),
         }
     }
 
-    /// Attempt to retrieve a copy of this widget's `BaseState`.
-    pub(crate) fn try_get_state(&mut self, widget: WidgetId) -> Option<BaseState> {
+    /// Attempt to retrieve a copy of this widget's `WidgetState`.
+    pub(crate) fn try_get_state(&mut self, widget: WidgetId) -> Option<WidgetState> {
         let cell = StateCell::default();
         let state_cell = cell.clone();
         self.lifecycle(LifeCycle::Internal(InternalLifeCycle::DebugRequestState {
@@ -201,10 +200,10 @@ impl<T: Data> Harness<'_, T> {
         cell.take()
     }
 
-    /// Inspect the `BaseState` of each widget in the tree.
+    /// Inspect the `WidgetState` of each widget in the tree.
     ///
     /// The provided closure will be called on each widget.
-    pub(crate) fn inspect_state(&mut self, f: impl Fn(&BaseState) + 'static) {
+    pub(crate) fn inspect_state(&mut self, f: impl Fn(&WidgetState) + 'static) {
         let checkfn = StateCheckFn::new(f);
         self.lifecycle(LifeCycle::Internal(InternalLifeCycle::DebugInspectState(
             checkfn,
@@ -297,6 +296,16 @@ impl<T: Data> Inner<T> {
     fn paint_rect(&mut self, piet: &mut Piet, invalid_rect: Rect) {
         self.window
             .do_paint(piet, invalid_rect, &mut self.cmds, &self.data, &self.env);
+    }
+}
+
+impl<T> Drop for Harness<'_, T> {
+    fn drop(&mut self) {
+        // We need to call finish even if a test assert failed
+        if let Err(err) = self.piet.finish() {
+            // We can't panic, because we might already be panicking
+            log::error!("piet finish failed: {}", err);
+        }
     }
 }
 

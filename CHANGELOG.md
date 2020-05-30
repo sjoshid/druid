@@ -51,6 +51,7 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 - `im::Vector` support for the `List` widget. ([#940] by [@xStrom])
 - `LifeCycle::Size` event to inform widgets that their size changed. ([#953] by [@xStrom])
 - `Button::dynamic` constructor. ([#963] by [@totsteps])
+- `set_menu` method on `UpdateCtx` and `LifeCycleCtx` ([#970] by [@cmyr])
 
 ### Changed
 
@@ -70,6 +71,8 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 - `SHOW_WINDOW` and `CLOSE_WINDOW` commands now only use `Target` to determine the affected window. ([#928] by [@finnerale])
 - Replaced `NEW_WINDOW`, `SET_MENU` and `SHOW_CONTEXT_MENU` commands with methods on `EventCtx` and `DelegateCtx`. ([#931] by [@finnerale])
 - Replaced `Command::one_shot` and `::take_object` with a `SingleUse` payload wrapper type. ([#959] by [@finnerale])
+- Renamed `WidgetPod` methods: `paint` to `paint_raw`, `paint_with_offset` to `paint`, `paint_with_offset_always` to `paint_always`. ([#980] by [@totsteps])
+- `Command` and `Selector` have been reworked and are now statically typed, similarly to `Env` and `Key`. ([#993] by [@finnerale])
 
 ### Deprecated
 
@@ -95,18 +98,22 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 - Supply correct `LifeCycleCtx` to `Event::FocusChanged`. ([#878] by [@cmyr])
 - Windows: Terminate app when all windows have closed. ([#763] by [@xStrom])
 - macOS: `Application::quit` now quits the run loop instead of killing the process. ([#763] by [@xStrom])
+- macOS: `Event::HotChanged` is properly generated with multiple windows. ([#907] by [@xStrom])
 - macOS/GTK/web: `MouseButton::X1` and `MouseButton::X2` clicks are now recognized. ([#843] by [@xStrom])
 - GTK: Support disabled menu items. ([#897] by [@jneem])
 - X11: Support individual window closing. ([#900] by [@xStrom])
 - X11: Support `Application::quit`. ([#900] by [@xStrom])
 - GTK: Support file filters in open/save dialogs. ([#903] by [@jneem])
 - GTK: Support DPI values other than 96. ([#904] by [@xStrom])
+- Windows: Removed flashes of white background at the edge of the window when resizing. ([#915] by [@xStrom])
+- Windows: Reduced chance of white flash when opening a new window. ([#916] by [@xStrom])
 - X11: Support key and mouse button state. ([#920] by [@jneem])
 - Routing `LifeCycle::FocusChanged` to descendant widgets. ([#925] by [@yrns])
 - Built-in open and save menu items now show the correct label and submit the right commands. ([#930] by [@finnerale])
 - Focus request handling is now predictable with the last request overriding earlier ones. ([#948] by [@xStrom])
 - Wheel events now properly update hot state. ([#951] by [@xStrom])
 - X11: Support mouse scrolling. ([#961] by [@jneem])
+- `Painter` now properly repaints on data change in `Container`. ([#991] by [@cmyr])
 
 ### Visual
 
@@ -114,18 +121,21 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 - Built-in widgets no longer stroke outside their `paint_rect`. ([#861] by [@jneem])
 - `Switch` toggles with animation when its data changes externally. ([#898] by [@finnerale])
 - Render progress bar correctly. ([#949] by [@scholtzan])
+- Scrollbars animate when the scroll container size changes. ([#964] by [@xStrom])
 
 ### Docs
 
 - Reduce the flashing in ext_event and identity examples. ([#782] by [@futurepaul])
 - Added example and usage hints to `Env`. ([#796] by [@finnerale])
 - Added documentation about the usage of bloom filters. ([#818] by [@xStrom])
-- Added Book chapters about `Painter` and `Controller`. ([#832] by [@cmyr])
+- Added book chapters about `Painter` and `Controller`. ([#832] by [@cmyr])
 - Added hot glow option to multiwin example. ([#845] by [@xStrom])
 - Added new example for blocking functions. ([#840] by [@mastfissh])
 - Added a changelog containing development since the 0.5 release. ([#889] by [@finnerale])
 - Removed references to cairo on macOS. ([#943] by [@xStrom])
 - Updated screenshots in `README.md`. ([#967] by [@xStrom])
+- Added a section about dependencies to `CONTRIBUTING.md`. ([#990] by [@xStrom])
+- Fixed menu inconsistency across multiple windows in the multiwin example. ([#926] by [@kindlychung])
 
 ### Maintenance
 
@@ -138,12 +148,16 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 - X11: Refactored `Window` to support some reentrancy and invalidation. ([#894] by [@xStrom])
 - Refactored DPI scaling. ([#904] by [@xStrom])
 - Added docs generation testing for all features. ([#942] by [@xStrom])
+- Renamed `BaseState` to `WidgetState` ([#969] by [@cmyr])
+- X11: Reworked error handling ([#982] by [@jneem])
+- Fixed test harness crashing on failure. ([#984] by [@xStrom])
 
 ### Outside News
 
-- There are two new projects using druid:
+- There are new projects using druid:
   - [Kondo](https://github.com/tbillington/kondo) Save disk space by cleaning unneeded files from software projects.
   - [jack-mixer](https://github.com/derekdreery/jack-mixer) A jack client that provides mixing, levels and a 3-band eq.
+  - [kiro-synth](https://github.com/chris-zen/kiro-synth) An in progress modular sound synthesizer.
 
 [#599]: https://github.com/xi-editor/druid/pull/599
 [#611]: https://github.com/xi-editor/druid/pull/611
@@ -197,11 +211,15 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 [#903]: https://github.com/xi-editor/druid/pull/903
 [#904]: https://github.com/xi-editor/druid/pull/904
 [#905]: https://github.com/xi-editor/druid/pull/905
+[#907]: https://github.com/xi-editor/druid/pull/907
 [#909]: https://github.com/xi-editor/druid/pull/909
+[#915]: https://github.com/xi-editor/druid/pull/915
+[#916]: https://github.com/xi-editor/druid/pull/916
 [#917]: https://github.com/xi-editor/druid/pull/917
 [#920]: https://github.com/xi-editor/druid/pull/920
 [#924]: https://github.com/xi-editor/druid/pull/924
 [#925]: https://github.com/xi-editor/druid/pull/925
+[#926]: https://github.com/xi-editor/druid/pull/926 
 [#928]: https://github.com/xi-editor/druid/pull/928
 [#930]: https://github.com/xi-editor/druid/pull/930
 [#931]: https://github.com/xi-editor/druid/pull/931
@@ -216,7 +234,16 @@ This means that druid no longer requires cairo on macOS and uses Core Graphics i
 [#959]: https://github.com/xi-editor/druid/pull/959
 [#961]: https://github.com/xi-editor/druid/pull/961
 [#963]: https://github.com/xi-editor/druid/pull/963
+[#964]: https://github.com/xi-editor/druid/pull/964
 [#967]: https://github.com/xi-editor/druid/pull/967
+[#969]: https://github.com/xi-editor/druid/pull/969
+[#970]: https://github.com/xi-editor/druid/pull/970
+[#980]: https://github.com/xi-editor/druid/pull/980
+[#982]: https://github.com/xi-editor/druid/pull/982
+[#984]: https://github.com/xi-editor/druid/pull/984
+[#990]: https://github.com/xi-editor/druid/pull/990
+[#991]: https://github.com/xi-editor/druid/pull/991
+[#993]: https://github.com/xi-editor/druid/pull/993
 
 ## [0.5.0] - 2020-04-01
 
