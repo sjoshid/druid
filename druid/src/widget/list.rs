@@ -72,6 +72,8 @@ pub trait ListIter<T>: Data {
 
     /// Return data length.
     fn data_len(&self) -> usize;
+
+    fn remove_at(&mut self, index: usize) -> T;
 }
 
 #[cfg(feature = "im")]
@@ -90,6 +92,10 @@ impl<T: Data> ListIter<T> for Vector<T> {
 
     fn data_len(&self) -> usize {
         self.len()
+    }
+
+    fn remove_at(&mut self, index: usize) -> T {
+        self.remove(index)
     }
 }
 
@@ -119,6 +125,10 @@ impl<S: Data, T: Data> ListIter<(S, T)> for (S, Vector<T>) {
 
     fn data_len(&self) -> usize {
         self.1.len()
+    }
+
+    fn remove_at(&mut self, index: usize) -> (S, T) {
+        unimplemented!()
     }
 }
 
@@ -150,6 +160,10 @@ impl<T: Data> ListIter<T> for Arc<Vec<T>> {
 
     fn data_len(&self) -> usize {
         self.len()
+    }
+
+    fn remove_at(&mut self, index: usize) -> T {
+        unimplemented!()
     }
 }
 
@@ -190,6 +204,10 @@ impl<S: Data, T: Data> ListIter<(S, T)> for (S, Arc<Vec<T>>) {
 
     fn data_len(&self) -> usize {
         self.1.len()
+    }
+
+    fn remove_at(&mut self, index: usize) -> (S, T) {
+        unimplemented!()
     }
 }
 

@@ -26,7 +26,7 @@ impl<T: Data + PartialEq> RadioList<T> {
 
     fn update_child_count(&mut self, data: &impl ListIter<T>, env: &Env) -> bool {
         let len = self.children.len();
-        println!("update_child_count children {}", self.children.len());
+        println!("len {} and children is {}", len, &data.data_len());
         match len.cmp(&data.data_len()) {
             Ordering::Greater => self.children.truncate(data.data_len()),
             Ordering::Less => data.for_each(|child_data, i| {
@@ -49,12 +49,10 @@ impl<C: Data + PartialEq, T: ListIter<C>> Widget<T> for RadioList<C> {
         match event {
             Event::Command(command) => {
                 if command.is(DELETE_SELECTED_NAME) {
-                    println!(
-                        "Deleting selected {}",
-                        *self.selected_radio_index.borrow_mut()
-                    );
-                    self.children
-                        .remove(*self.selected_radio_index.borrow_mut());
+                    self.children.remove(*self.selected_radio_index.borrow());
+                    data.remove_at(*self.selected_radio_index.borrow());
+                    *self.selected_radio_index.borrow_mut() = 0;
+                    ctx.request_layout();
                     ctx.request_paint();
                 }
             }
