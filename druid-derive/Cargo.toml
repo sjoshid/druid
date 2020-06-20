@@ -1,6 +1,6 @@
 [package]
 name = "druid-derive"
-version = "0.4.0"
+version = "0.3.1"
 license = "Apache-2.0"
 authors = ["Druid authors"]
 description = "derive impls for druid, a Rust UI toolkit."
@@ -10,8 +10,12 @@ edition = "2018"
 [lib]
 proc-macro = true
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-pc-windows-msvc"
+
 [dependencies]
-syn = "1.0.25"
+syn = "1.0.29"
 quote = "1.0.6"
 proc-macro2 = "1.0.17"
 

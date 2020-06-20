@@ -15,7 +15,7 @@
 //! Simple data-oriented GUI.
 //!
 //! Druid lets you build simple interactive graphical applications that
-//! can be deployed on windows, mac, and linux.
+//! can be deployed on Windows, macOS, Linux, and the web.
 //!
 //! Druid is built on top of [`druid-shell`], which implements all of the
 //! lower-level, platform-specific code, providing a common abstraction
@@ -34,6 +34,8 @@
 //!
 //! As your application grows, you can use [`Lens`]es to expose only certain
 //! subsets of your data model to certains subsets of your widget tree.
+//!
+//! For more information you should read the [druid book].
 //!
 //! # Examples
 //!
@@ -89,6 +91,21 @@
 //! }
 //! ```
 //!
+//! # Optional Features
+//!
+//! * `im` - Efficient immutable data structures using the [`im` crate],
+//!          which is made available via the [`im` module].
+//! * `svg` - Scalable Vector Graphics for icons and other scalable images using the [`usvg` crate].
+//! * `image` - Bitmap image support using the [`image` crate].
+//! * `x11` - Work-in-progress X11 Linux backend instead of GTK.
+//!
+//! Features can be added with `cargo`. For example, in your `Cargo.toml`:
+//! ```no_compile
+//! [dependencies.druid]
+//! version = "0.6.0"
+//! features = ["im", "svg", "image"]
+//! ```
+//!
 //! [`Widget`]: trait.Widget.html
 //! [`Data`]: trait.Data.html
 //! [`Lens`]: trait.Lens.html
@@ -96,10 +113,16 @@
 //! [`Event`]: enum.Event.html
 //! [`druid-shell`]: https://docs.rs/druid-shell
 //! [`piet`]: https://docs.rs/piet
-//! [`druid/examples`]: https://github.com/xi-editor/druid/tree/v0.5.0/druid/examples
+//! [`druid/examples`]: https://github.com/xi-editor/druid/tree/v0.6.0/druid/examples
+//! [druid book]: https://xi-editor.io/druid/intro.html
+//! [`im` crate]: https://crates.io/crates/im
+//! [`im` module]: im/index.html
+//! [`usvg` crate]: https://crates.io/crates/usvg
+//! [`image` crate]: https://crates.io/crates/image
 
 #![deny(intra_doc_link_resolution_failure, unsafe_code)]
 #![allow(clippy::new_ret_no_self, clippy::needless_doctest_main)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Allows to use macros from druid_derive in this crate

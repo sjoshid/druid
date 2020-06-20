@@ -65,6 +65,11 @@ use crate::mouse::{Cursor, MouseButton, MouseButtons, MouseEvent};
 use crate::scale::{Scale, ScaledArea};
 use crate::window::{IdleToken, Text, TimerToken, WinHandler};
 
+/// The platform target DPI.
+///
+/// Windows considers 96 the default value which represents a 1.0 scale factor.
+pub(crate) const SCALE_TARGET_DPI: f64 = 96.0;
+
 extern "system" {
     pub fn DwmFlush();
 }
@@ -138,6 +143,7 @@ struct WindowState {
     hwnd: Cell<HWND>,
     scale: Cell<Scale>,
     area: Cell<ScaledArea>,
+    has_menu: Cell<bool>,
     wndproc: Box<dyn WndProc>,
     idle_queue: Arc<Mutex<Vec<IdleKind>>>,
     timers: Arc<Mutex<TimerSlots>>,
@@ -288,7 +294,7 @@ fn is_point_in_client_rect(hwnd: HWND, x: i32, y: i32) -> bool {
 }
 
 impl WndState {
-    fn rebuild_render_target(&mut self, d2d: &D2DFactory, scale: &Scale) {
+    fn rebuild_render_target(&mut self, d2d: &D2DFactory, scale: Scale) {
         unsafe {
             let swap_chain = self.dcomp_state.as_ref().unwrap().swap_chain;
             let rt = paint::create_render_target_dxgi(d2d, swap_chain, scale)
@@ -358,40 +364,34 @@ impl MyWndProc {
         );
     }
 
-    fn scale(&self) -> Scale {
-        self.handle
+    fn with_window_state<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Rc<WindowState>) -> R,
+    {
+        f(self
+            .handle
             // Right now there aren't any mutable borrows to this.
             // TODO: Attempt to guarantee this by making mutable handle borrows useless.
             .borrow()
             .state
             .upgrade()
-            .unwrap() // WindowState drops after WM_NCDESTROY, so it's always here.
-            .scale
-            .get()
+            .unwrap()) // WindowState drops after WM_NCDESTROY, so it's always here.
+    }
+
+    fn scale(&self) -> Scale {
+        self.with_window_state(|state| state.scale.get())
     }
 
     fn area(&self) -> ScaledArea {
-        self.handle
-            // Right now there aren't any mutable borrows to this.
-            // TODO: Attempt to guarantee this by making mutable handle borrows useless.
-            .borrow()
-            .state
-            .upgrade()
-            .unwrap() // WindowState drops after WM_NCDESTROY, so it's always here.
-            .area
-            .get()
+        self.with_window_state(|state| state.area.get())
     }
 
     fn set_area(&self, area: ScaledArea) {
-        self.handle
-            // Right now there aren't any mutable borrows to this.
-            // TODO: Attempt to guarantee this by making mutable handle borrows useless.
-            .borrow()
-            .state
-            .upgrade()
-            .unwrap() // WindowState drops after WM_NCDESTROY, so it's always here.
-            .area
-            .set(area)
+        self.with_window_state(move |state| state.area.set(area))
+    }
+
+    fn has_menu(&self) -> bool {
+        self.with_window_state(|state| state.has_menu.get())
     }
 }
 
@@ -533,7 +533,7 @@ impl WndProc for MyWndProc {
                         );
                         if SUCCEEDED(res) {
                             s.handler.rebuild_resources();
-                            s.rebuild_render_target(&self.d2d_factory, &self.scale());
+                            s.rebuild_render_target(&self.d2d_factory, self.scale());
                             s.render(
                                 &self.d2d_factory,
                                 &self.dwrite_factory,
@@ -566,7 +566,7 @@ impl WndProc for MyWndProc {
                     let width = LOWORD(lparam as u32) as u32;
                     let height = HIWORD(lparam as u32) as u32;
                     let scale = self.scale();
-                    let area = ScaledArea::from_px((width as f64, height as f64), &scale);
+                    let area = ScaledArea::from_px((width as f64, height as f64), scale);
                     let size_dp = area.size_dp();
                     self.set_area(area);
                     s.handler.size(size_dp);
@@ -601,7 +601,7 @@ impl WndProc for MyWndProc {
                             );
                         }
                         if SUCCEEDED(res) {
-                            s.rebuild_render_target(&self.d2d_factory, &scale);
+                            s.rebuild_render_target(&self.d2d_factory, scale);
                             s.render(
                                 &self.d2d_factory,
                                 &self.dwrite_factory,
@@ -677,7 +677,13 @@ impl WndProc for MyWndProc {
                     let is_repeat = (lparam & 0xFFFF) > 0;
                     let event = KeyEvent::new(key_code, is_repeat, modifiers, "", "");
 
-                    if s.handler.key_down(event) {
+                    if s.handler.key_down(event)
+                        // If the window doesn't have a menu, then we need to suppress ALT/F10.
+                        // Otherwise we will stop getting mouse events for no gain.
+                        // When we do have a menu, those keys will focus the menu.
+                        || (!self.has_menu()
+                            && (key_code == KeyCode::LeftAlt || key_code == KeyCode::F10))
+                    {
                         Some(0)
                     } else {
                         None
@@ -936,7 +942,7 @@ impl WndProc for MyWndProc {
                 if let Ok(s) = self.state.try_borrow() {
                     let s = s.as_ref().unwrap();
                     if let Some(min_size_dp) = s.min_size {
-                        let min_area = ScaledArea::from_dp(min_size_dp, &self.scale());
+                        let min_area = ScaledArea::from_dp(min_size_dp, self.scale());
                         let min_size_px = min_area.size_px();
                         min_max_info.ptMinTrackSize.x = min_size_px.width as i32;
                         min_max_info.ptMinTrackSize.y = min_size_px.height as i32;
@@ -1025,23 +1031,32 @@ impl WindowBuilder {
                 present_strategy: self.present_strategy,
             };
 
-            // Simple scaling based on System DPI (96 is equivalent to 100%)
-            let dpi = if let Some(func) = OPTIONAL_FUNCTIONS.GetDpiForSystem {
+            // Simple scaling based on System DPI
+            let scale_factor = if let Some(func) = OPTIONAL_FUNCTIONS.GetDpiForSystem {
                 // Only supported on Windows 10
-                func() as f64
+                func() as f64 / SCALE_TARGET_DPI
             } else {
                 // TODO GetDpiForMonitor is supported on Windows 8.1, try falling back to that here
                 // Probably GetDeviceCaps(..., LOGPIXELSX) is the best to do pre-10
-                96.0
+                1.0
             };
-            let scale = Scale::from_dpi(dpi, dpi);
-            let area = ScaledArea::from_dp(self.size, &scale);
+            let scale = Scale::new(scale_factor, scale_factor);
+            let area = ScaledArea::from_dp(self.size, scale);
             let size_px = area.size_px();
+
+            let (hmenu, accels, has_menu) = match self.menu {
+                Some(menu) => {
+                    let accels = menu.accels();
+                    (menu.into_hmenu(), accels, true)
+                }
+                None => (0 as HMENU, None, false),
+            };
 
             let window = WindowState {
                 hwnd: Cell::new(0 as HWND),
                 scale: Cell::new(scale),
                 area: Cell::new(area),
+                has_menu: Cell::new(has_menu),
                 wndproc: Box::new(wndproc),
                 idle_queue: Default::default(),
                 timers: Arc::new(Mutex::new(TimerSlots::new(1))),
@@ -1063,14 +1078,6 @@ impl WindowBuilder {
                 has_mouse_focus: false,
             };
             win.wndproc.connect(&handle, state);
-
-            let (hmenu, accels) = match self.menu {
-                Some(menu) => {
-                    let accels = menu.accels();
-                    (menu.into_hmenu(), accels)
-                }
-                None => (0 as HMENU, None),
-            };
 
             let mut dwStyle = WS_OVERLAPPEDWINDOW;
             if !self.resizable {
@@ -1406,6 +1413,7 @@ impl WindowHandle {
                 if SetMenu(hwnd, hmenu) == FALSE {
                     warn!("failed to set window menu");
                 } else {
+                    w.has_menu.set(true);
                     DestroyMenu(old_menu);
                 }
                 if let Some(accels) = accels {

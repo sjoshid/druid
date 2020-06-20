@@ -25,8 +25,6 @@ mod either;
 mod env_scope;
 mod flex;
 mod identity_wrapper;
-#[cfg(feature = "image")]
-#[cfg_attr(docsrs, doc(cfg(feature = "image")))]
 mod image;
 mod invalidation;
 mod label;
@@ -41,6 +39,7 @@ pub mod radio_list;
 mod scroll;
 mod sized_box;
 mod slider;
+mod spinner;
 mod split;
 mod stepper;
 #[cfg(feature = "svg")]
@@ -53,8 +52,6 @@ mod view_switcher;
 mod widget;
 mod widget_ext;
 
-#[cfg(feature = "image")]
-#[cfg_attr(docsrs, doc(cfg(feature = "image")))]
 pub use self::image::{Image, ImageData};
 pub use align::Align;
 pub use button::Button;
@@ -79,10 +76,10 @@ pub use radio_list::RadioList;
 pub use scroll::Scroll;
 pub use sized_box::SizedBox;
 pub use slider::Slider;
+pub use spinner::Spinner;
 pub use split::Split;
 pub use stepper::Stepper;
 #[cfg(feature = "svg")]
-#[cfg_attr(docsrs, doc(cfg(feature = "svg")))]
 pub use svg::{Svg, SvgData};
 pub use switch::Switch;
 pub use textbox::TextBox;
