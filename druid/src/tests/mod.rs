@@ -1,4 +1,4 @@
-// Copyright 2020 The xi-editor Authors.
+// Copyright 2020 The Druid Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -78,7 +78,7 @@ fn propogate_hot() {
             pos,
             window_pos: pos,
             buttons: MouseButtons::default(),
-            mods: KeyModifiers::default(),
+            mods: Modifiers::default(),
             count: 0,
             focus: false,
             button: MouseButton::None,

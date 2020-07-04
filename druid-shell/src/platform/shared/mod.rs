@@ -1,4 +1,4 @@
-// Copyright 2019 The Druid Authors.
+// Copyright 2020 The Druid Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,17 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! macOS platform errors.
+//! Logic that is shared by more than one platform.
 
-//TODO: add a platform error for macOS, based on NSError
-
-#[derive(Debug, Clone)]
-pub struct Error;
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "NSError")
+cfg_if::cfg_if! {
+    if #[cfg(any(target_os = "macos", target_os = "linux"))] {
+        mod keyboard;
+        pub use keyboard::*;
     }
 }
-
-impl std::error::Error for Error {}

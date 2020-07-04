@@ -1,4 +1,4 @@
-// Copyright 2018 The xi-editor Authors.
+// Copyright 2018 The Druid Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -113,8 +113,8 @@
 //! [`Event`]: enum.Event.html
 //! [`druid-shell`]: https://docs.rs/druid-shell
 //! [`piet`]: https://docs.rs/piet
-//! [`druid/examples`]: https://github.com/xi-editor/druid/tree/v0.6.0/druid/examples
-//! [druid book]: https://xi-editor.io/druid/intro.html
+//! [`druid/examples`]: https://github.com/linebender/druid/tree/v0.6.0/druid/examples
+//! [druid book]: https://linebender.org/druid/
 //! [`im` crate]: https://crates.io/crates/im
 //! [`im` module]: im/index.html
 //! [`usvg` crate]: https://crates.io/crates/usvg
@@ -167,10 +167,11 @@ mod window;
 pub use kurbo::{Affine, Insets, Point, Rect, Size, Vec2};
 pub use piet::{Color, LinearGradient, RadialGradient, RenderContext, UnitPoint};
 // these are the types from shell that we expose; others we only use internally.
+pub use shell::keyboard_types;
 pub use shell::{
-    Application, Clipboard, ClipboardFormat, Cursor, Error as PlatformError, FileDialogOptions,
-    FileInfo, FileSpec, FormatId, HotKey, KeyCode, KeyEvent, KeyModifiers, MouseButton,
-    MouseButtons, RawMods, Scale, SysMods, Text, TimerToken, WindowHandle,
+    Application, Clipboard, ClipboardFormat, Code, Cursor, Error as PlatformError,
+    FileDialogOptions, FileInfo, FileSpec, FormatId, HotKey, KbKey, KeyEvent, Location, Modifiers,
+    MouseButton, MouseButtons, RawMods, Scale, SysMods, Text, TimerToken, WindowHandle,
 };
 
 pub use crate::core::WidgetPod;
@@ -194,3 +195,17 @@ pub use window::{Window, WindowId};
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 pub(crate) use event::{StateCell, StateCheckFn};
+
+/// The meaning (mapped value) of a keypress.
+///
+/// Note that in previous versions, the `KeyCode` field referred to the
+/// physical position of the key, rather than the mapped value. In most
+/// cases, applications should dispatch based on the value instead. This
+/// alias is provided to make that transition easy, but in any case make
+/// an explicit choice whether to use meaning or physical location and
+/// use the appropriate type.
+#[deprecated(since = "0.7.0", note = "Use KbKey instead")]
+pub type KeyCode = KbKey;
+
+#[deprecated(since = "0.7.0", note = "Use Modifiers instead")]
+pub type KeyModifiers = Modifiers;

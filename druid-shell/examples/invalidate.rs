@@ -1,4 +1,4 @@
-// Copyright 2020 The xi-editor Authors.
+// Copyright 2020 The Druid Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -84,6 +84,7 @@ impl WinHandler for InvalidateTest {
 }
 
 fn main() {
+    simple_logger::init().expect("Failed to init simple logger");
     let app = Application::new().unwrap();
     let mut builder = WindowBuilder::new(app.clone());
     let inv_test = InvalidateTest {
