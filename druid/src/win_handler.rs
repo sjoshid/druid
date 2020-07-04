@@ -34,6 +34,7 @@ use crate::{
 };
 
 use crate::command::sys as sys_cmd;
+use std::path::Path;
 
 pub(crate) const RUN_COMMANDS_TOKEN: IdleToken = IdleToken::new(1);
 
@@ -91,6 +92,7 @@ struct Windows<T> {
 impl<T> Windows<T> {
     fn connect(&mut self, id: WindowId, handle: WindowHandle) {
         if let Some(pending) = self.pending.remove(&id) {
+            xi_trace::enable_tracing();
             let win = Window::new(id, handle, pending);
             assert!(self.windows.insert(id, win).is_none(), "duplicate window");
         } else {
@@ -234,6 +236,12 @@ impl<T: Data> Inner<T> {
                 self.root_menu = win.menu.take();
                 // If there are even no pending windows, we quit the run loop.
                 if self.windows.count() == 0 {
+                    xi_trace::save(
+                        Path::new("C:\\Users\\joshi\\Documents\\Dummy\\result.json"),
+                        true,
+                    )
+                    .expect("Failed to save data");
+
                     #[cfg(any(target_os = "windows", feature = "x11"))]
                     self.app.quit();
                 }
