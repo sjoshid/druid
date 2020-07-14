@@ -28,8 +28,6 @@ use crate::{
     LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Region, Target, TimerToken, UpdateCtx, Widget,
     WidgetId,
 };
-use std::rc::Rc;
-use xi_trace::SampleGuard;
 
 /// Our queue type
 pub(crate) type CommandQueue = VecDeque<(Target, Command)>;
@@ -566,7 +564,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
 
         // If we need to replace either the event or its data.
         let mut modified_event = None;
-        let mut my_guard = None;
+        let mut ignore_event_for_tracing = false;
 
         let recurse = match event {
             Event::Internal(internal) => match internal {
@@ -600,7 +598,6 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                     }
                 }
                 InternalEvent::RouteTimer(token, widget_id) => {
-                    my_guard = Some(xi_trace::trace_block(format!("{:?} {:?} {:?}", token, widget_id, self.id()), &["core", "timer"]));
                     if *widget_id == self.id() {
                         modified_event = Some(Event::Timer(*token));
                         true
@@ -653,6 +650,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                 }
             }
             Event::MouseMove(mouse_event) => {
+                ignore_event_for_tracing = true;
                 let hot_changed = WidgetPod::set_hot_state(
                     &mut self.inner,
                     &mut self.state,
@@ -711,6 +709,10 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             };
             let inner_event = modified_event.as_ref().unwrap_or(event);
             inner_ctx.widget_state.has_active = false;
+            let mut _tracing_guard = None;
+            if !ignore_event_for_tracing {
+                _tracing_guard = Some(xi_trace::trace_block(format!("{:?}", inner_event), &["core"]));
+            }
 
             self.inner.event(&mut inner_ctx, &inner_event, data, env);
 
@@ -723,25 +725,8 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         ctx.widget_state.merge_up(&mut self.state);
     }
 
-    fn filter_event(&mut self, inner_event: &Event) -> Option<SampleGuard> {
-        let mut filter = false;
-        match inner_event {
-            Event::Internal(InternalEvent::RouteTimer(t, w)) => {
-                filter = true;
-            }
-            _ => {
-                filter = false;
-            }
-        }
-
-        if filter {
-            Some(xi_trace::trace_block(format!("{:?}", inner_event), &["core", "timer"]))
-        } else {
-            None
-        }
-    }
-
     pub fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
+        let _guard = xi_trace::trace_block(format!("{:?}", event), &["lifecycle"]);
         // in the case of an internal routing event, if we are at our target
         // we may send an extra event after the actual event
         let mut extra_event = None;

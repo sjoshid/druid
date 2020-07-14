@@ -1,11 +1,16 @@
 use std::path::Path;
+use std::time::SystemTime;
+use chrono::Local;
 
 fn main() {
     let _t = xi_trace::enable_tracing();
     let res = fibonacci(7);
     println!("{}", res);
+    let date = Local::now();
+    let file_name = format!("{}.json", date.format("%Y-%m-%d-%H-%M-%S"));
+    println!("{}", file_name);
     xi_trace::save(
-        Path::new("C:\\Users\\joshi\\Documents\\Dummy\\fibonnaci.json"),
+        Path::new(&file_name),
         true,
     )
     .expect("Failed to save data");

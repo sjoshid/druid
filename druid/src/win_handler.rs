@@ -35,6 +35,8 @@ use crate::{
 
 use crate::command::sys as sys_cmd;
 use std::path::Path;
+use std::time::SystemTime;
+use chrono::Local;
 
 pub(crate) const RUN_COMMANDS_TOKEN: IdleToken = IdleToken::new(1);
 
@@ -92,7 +94,6 @@ struct Windows<T> {
 impl<T> Windows<T> {
     fn connect(&mut self, id: WindowId, handle: WindowHandle) {
         if let Some(pending) = self.pending.remove(&id) {
-            xi_trace::enable_tracing();
             let win = Window::new(id, handle, pending);
             assert!(self.windows.insert(id, win).is_none(), "duplicate window");
         } else {
@@ -236,12 +237,6 @@ impl<T: Data> Inner<T> {
                 self.root_menu = win.menu.take();
                 // If there are even no pending windows, we quit the run loop.
                 if self.windows.count() == 0 {
-                    xi_trace::save(
-                        Path::new("C:\\Users\\joshi\\Documents\\Dummy\\result.json"),
-                        true,
-                    )
-                    .expect("Failed to save data");
-
                     #[cfg(any(target_os = "windows", feature = "x11"))]
                     self.app.quit();
                 }
@@ -659,7 +654,8 @@ impl<T: Data> WinHandler for DruidHandler<T> {
     fn connect(&mut self, handle: &WindowHandle) {
         self.app_state
             .connect_window(self.window_id, handle.clone());
-
+        //sj_todo get flag from config.
+        xi_trace::enable_tracing();
         let event = Event::WindowConnected;
         self.app_state.do_window_event(event, self.window_id);
     }
@@ -741,6 +737,12 @@ impl<T: Data> WinHandler for DruidHandler<T> {
 
     fn destroy(&mut self) {
         self.app_state.remove_window(self.window_id);
+        let date = Local::now();
+        let file_name = format!("{}.json", date.format("%Y-%m-%d-%H-%M-%S"));
+        xi_trace::save(
+            Path::new(&file_name),
+            false,
+        ).expect("Failed to save");
     }
 }
 
