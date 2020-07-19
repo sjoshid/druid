@@ -700,6 +700,13 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         };
 
         if recurse {
+            #[cfg(feature = "xi-trace")]
+            let mut _guard = None;
+            #[cfg(feature = "xi-trace")]
+            if !ignore_event_for_tracing {
+                _guard = Some(xi_trace::trace_block_payload(format!("{:?}", self.id()), &["event"], format!("{:?}", modified_event)));
+            }
+
             let mut inner_ctx = EventCtx {
                 cursor: ctx.cursor,
                 state: ctx.state,
@@ -709,10 +716,6 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             };
             let inner_event = modified_event.as_ref().unwrap_or(event);
             inner_ctx.widget_state.has_active = false;
-            let mut _tracing_guard = None;
-            if !ignore_event_for_tracing {
-                _tracing_guard = Some(xi_trace::trace_block(format!("{:?}", inner_event), &["core"]));
-            }
 
             self.inner.event(&mut inner_ctx, &inner_event, data, env);
 
@@ -726,7 +729,8 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
     }
 
     pub fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
-        let _guard = xi_trace::trace_block(format!("{:?}", event), &["lifecycle"]);
+        #[cfg(feature = "xi-trace")]
+        let _guard = xi_trace::trace_block_payload(format!("{:?}", self.id()), &["lifecycle"], format!("{:?}", event));
         // in the case of an internal routing event, if we are at our target
         // we may send an extra event after the actual event
         let mut extra_event = None;
@@ -857,11 +861,15 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                 log::warn!("old_data missing in {:?}, skipping update", self.id());
                 self.old_data = Some(data.clone());
                 self.env = Some(env.clone());
+                #[cfg(feature = "xi-trace")]
+                let _guard = xi_trace::trace_payload(format!("{:?}", self.id()), &["update"], "old_data missing. Skipping update");
                 return;
             }
             _ => (),
         }
 
+        #[cfg(feature = "xi-trace")]
+        let _guard = xi_trace::trace_block(format!("updating {:?}", self.id()), &["update"]);
         let mut child_ctx = UpdateCtx {
             state: ctx.state,
             widget_state: &mut self.state,

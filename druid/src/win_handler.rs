@@ -654,7 +654,7 @@ impl<T: Data> WinHandler for DruidHandler<T> {
     fn connect(&mut self, handle: &WindowHandle) {
         self.app_state
             .connect_window(self.window_id, handle.clone());
-        //sj_todo get flag from config.
+        #[cfg(feature = "xi-trace")]
         xi_trace::enable_tracing();
         let event = Event::WindowConnected;
         self.app_state.do_window_event(event, self.window_id);
@@ -738,11 +738,14 @@ impl<T: Data> WinHandler for DruidHandler<T> {
     fn destroy(&mut self) {
         self.app_state.remove_window(self.window_id);
         let date = Local::now();
-        let file_name = format!("{}.json", date.format("%Y-%m-%d-%H-%M-%S"));
-        xi_trace::save(
-            Path::new(&file_name),
-            false,
-        ).expect("Failed to save");
+        #[cfg(feature = "xi-trace")]
+        {
+            let file_name = format!("{}.json", date.format("%Y-%m-%d-%H-%M-%S"));
+            xi_trace::save(
+                Path::new(&file_name),
+                false,
+            ).expect("Failed to save trace.");
+        }
     }
 }
 

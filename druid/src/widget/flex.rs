@@ -516,24 +516,32 @@ impl<T: Data> Flex<T> {
 
 impl<T: Data> Widget<T> for Flex<T> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+        #[cfg(feature = "xi-trace")]
+            let _guard = xi_trace::trace_payload(format!("{:?}", ctx.widget_id()), &["event", "flex"], "payload?");
         for child in &mut self.children {
             child.widget.event(ctx, event, data, env);
         }
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
+        #[cfg(feature = "xi-trace")]
+        let _guard = xi_trace::trace_payload(format!("{:?}", ctx.widget_id()), &["lifecycle", "flex"], "payload?");
         for child in &mut self.children {
             child.widget.lifecycle(ctx, event, data, env);
         }
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &T, data: &T, env: &Env) {
+        #[cfg(feature = "xi-trace")]
+        let _guard = xi_trace::trace_payload(format!("{:?}", ctx.widget_id()), &["update", "flex"], "payload?");
         for child in &mut self.children {
             child.widget.update(ctx, data, env);
         }
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) -> Size {
+        #[cfg(feature = "xi-trace")]
+        let _guard = xi_trace::trace_payload(format!("{:?}", ctx.widget_id()), &["layout", "flex"], "payload?");
         bc.debug_check("Flex");
         // we loosen our constraints when passing to children.
         let loosened_bc = bc.loosen();
@@ -646,6 +654,8 @@ impl<T: Data> Widget<T> for Flex<T> {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        #[cfg(feature = "xi-trace")]
+        let _guard = xi_trace::trace_payload(format!("{:?}", ctx.widget_id()), &["paint", "flex"], "payload?");
         for child in &mut self.children {
             child.widget.paint(ctx, data, env);
         }

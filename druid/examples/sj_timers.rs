@@ -51,6 +51,7 @@ impl Widget<u32> for TimerWidget {
                     self.on = !self.on;
                     ctx.request_paint();
                     println!("Received/triggering by id: {:?}", ctx.widget_id());
+                    #[cfg(feature = "trace")]
                     xi_trace::trace(format!("{:?}", ctx.widget_id()), &["found"]);
                     let deadline = Duration::from_millis(1000);
                     self.timer_id = ctx.request_timer(deadline);
