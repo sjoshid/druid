@@ -36,6 +36,7 @@ use crate::{
 use crate::command::sys as sys_cmd;
 use std::path::Path;
 use std::time::SystemTime;
+#[cfg(feature = "trace")]
 use chrono::Local;
 
 pub(crate) const RUN_COMMANDS_TOKEN: IdleToken = IdleToken::new(1);
@@ -654,7 +655,7 @@ impl<T: Data> WinHandler for DruidHandler<T> {
     fn connect(&mut self, handle: &WindowHandle) {
         self.app_state
             .connect_window(self.window_id, handle.clone());
-        #[cfg(feature = "xi-trace")]
+        #[cfg(feature = "trace")]
         xi_trace::enable_tracing();
         let event = Event::WindowConnected;
         self.app_state.do_window_event(event, self.window_id);
@@ -737,9 +738,9 @@ impl<T: Data> WinHandler for DruidHandler<T> {
 
     fn destroy(&mut self) {
         self.app_state.remove_window(self.window_id);
-        let date = Local::now();
-        #[cfg(feature = "xi-trace")]
+        #[cfg(feature = "trace")]
         {
+            let date = Local::now();
             let file_name = format!("{}.json", date.format("%Y-%m-%d-%H-%M-%S"));
             xi_trace::save(
                 Path::new(&file_name),
