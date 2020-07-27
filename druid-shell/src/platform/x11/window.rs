@@ -16,10 +16,12 @@
 
 use std::any::Any;
 use std::cell::RefCell;
+use std::collections::BinaryHeap;
 use std::convert::{TryFrom, TryInto};
 use std::os::unix::io::RawFd;
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use anyhow::{anyhow, Context, Error};
 use cairo::{XCBConnection as CairoXCBConnection, XCBDrawable, XCBSurface, XCBVisualType};
@@ -47,7 +49,7 @@ use crate::window::{IdleToken, Text, TimerToken, WinHandler};
 use super::application::Application;
 use super::keycodes;
 use super::menu::Menu;
-use super::util;
+use super::util::{self, Timer};
 
 /// A version of XCB's `xcb_visualtype_t` struct. This was copied from the [example] in x11rb; it
 /// is used to interoperate with cairo.
@@ -252,6 +254,7 @@ impl WindowBuilder {
         let state = RefCell::new(WindowState {
             size: self.size,
             invalid: Rect::ZERO,
+            destroyed: false,
         });
         let present_data = match self.initialize_present_data(id) {
             Ok(p) => Some(p),
@@ -296,6 +299,7 @@ impl WindowBuilder {
             cairo_surface,
             atoms,
             state,
+            timer_queue: Mutex::new(BinaryHeap::new()),
             idle_queue: Arc::new(Mutex::new(Vec::new())),
             idle_pipe: self.app.idle_pipe(),
             present_data: RefCell::new(present_data),
@@ -350,6 +354,8 @@ pub(crate) struct Window {
     cairo_surface: RefCell<XCBSurface>,
     atoms: WindowAtoms,
     state: RefCell<WindowState>,
+    /// Timers, sorted by "earliest deadline first"
+    timer_queue: Mutex<BinaryHeap<Timer>>,
     idle_queue: Arc<Mutex<Vec<IdleKind>>>,
     // Writing to this wakes up the event loop, so that it can run idle handlers.
     idle_pipe: RawFd,
@@ -437,6 +443,8 @@ struct WindowState {
     size: Size,
     /// The region that was invalidated since the last time we rendered.
     invalid: Rect,
+    /// We've told X11 to destroy this window, so don't so any more X requests with this window id.
+    destroyed: bool,
 }
 
 /// A collection of pixmaps for rendering to. This gets used in two different ways: if the present
@@ -505,7 +513,17 @@ impl Window {
 
     /// Start the destruction of the window.
     pub fn destroy(&self) {
-        log_x11!(self.app.connection().destroy_window(self.id));
+        if !self.destroyed() {
+            match borrow_mut!(self.state) {
+                Ok(mut state) => state.destroyed = true,
+                Err(e) => log::error!("Failed to set destroyed flag: {}", e),
+            }
+            log_x11!(self.app.connection().destroy_window(self.id));
+        }
+    }
+
+    fn destroyed(&self) -> bool {
+        borrow!(self.state).map(|s| s.destroyed).unwrap_or(false)
     }
 
     fn size(&self) -> Result<Size, Error> {
@@ -563,6 +581,10 @@ impl Window {
     }
 
     fn render(&self) -> Result<(), Error> {
+        if self.destroyed() {
+            return Ok(());
+        }
+
         let size = borrow!(self.state)?.size;
         let invalid_rect = borrow!(self.state)?.invalid;
         let mut anim = false;
@@ -629,7 +651,9 @@ impl Window {
     }
 
     fn show(&self) {
-        log_x11!(self.app.connection().map_window(self.id));
+        if !self.destroyed() {
+            log_x11!(self.app.connection().map_window(self.id));
+        }
     }
 
     fn close(&self) {
@@ -648,6 +672,10 @@ impl Window {
 
     /// Bring this window to the front of the window stack and give it focus.
     fn bring_to_front_and_focus(&self) {
+        if self.destroyed() {
+            return;
+        }
+
         // TODO(x11/misc): Unsure if this does exactly what the doc comment says; need a test case.
         let conn = self.app.connection();
         log_x11!(conn.configure_window(
@@ -718,6 +746,10 @@ impl Window {
     }
 
     fn set_title(&self, title: &str) {
+        if self.destroyed() {
+            return;
+        }
+
         // This is technically incorrect. STRING encoding is *not* UTF8. However, I am not sure
         // what it really is. WM_LOCALE_NAME might be involved. Hopefully, nothing cares about this
         // as long as _NET_WM_NAME is also set (which uses UTF8).
@@ -943,6 +975,10 @@ impl Window {
     }
 
     pub fn handle_idle_notify(&self, event: &IdleNotifyEvent) -> Result<(), Error> {
+        if self.destroyed() {
+            return Ok(());
+        }
+
         let mut buffers = borrow_mut!(self.buffers)?;
         if buffers.all_pixmaps.contains(&event.pixmap) {
             buffers.idle_pixmaps.push(event.pixmap);
@@ -1001,6 +1037,27 @@ impl Window {
         if needs_redraw {
             if let Err(e) = self.redraw_now() {
                 log::error!("Error redrawing: {}", e);
+            }
+        }
+    }
+
+    pub(crate) fn next_timeout(&self) -> Option<Instant> {
+        if let Some(timer) = self.timer_queue.lock().unwrap().peek() {
+            Some(timer.deadline())
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn run_timers(&self, now: Instant) {
+        while let Some(deadline) = self.next_timeout() {
+            if deadline > now {
+                break;
+            }
+            // Remove the timer and get the token
+            let token = self.timer_queue.lock().unwrap().pop().unwrap().token();
+            if let Ok(mut handler_borrow) = self.handler.try_borrow_mut() {
+                handler_borrow.timer(token);
             }
         }
     }
@@ -1339,12 +1396,14 @@ impl WindowHandle {
         Text::new()
     }
 
-    pub fn request_timer(&self, _deadline: std::time::Instant) -> TimerToken {
-        // TODO(x11/timers): implement WindowHandle::request_timer
-        //     This one might be tricky, since there's not really any timers to hook into in X11.
-        //     Might have to code up our own Timer struct, running in its own thread?
-        log::warn!("WindowHandle::resizeable is currently unimplemented for X11 platforms.");
-        TimerToken::INVALID
+    pub fn request_timer(&self, deadline: Instant) -> TimerToken {
+        if let Some(w) = self.window.upgrade() {
+            let timer = Timer::new(deadline);
+            w.timer_queue.lock().unwrap().push(timer);
+            timer.token()
+        } else {
+            TimerToken::INVALID
+        }
     }
 
     pub fn set_cursor(&mut self, _cursor: &Cursor) {

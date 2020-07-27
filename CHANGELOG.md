@@ -8,16 +8,18 @@ You can find its changes [documented below](#060---2020-06-01).
 ### Highlights
 
 ### Added
+- `OPEN_PANEL_CANCELLED` and `SAVE_PANEL_CANCELLED` commands. ([#1061] by @cmyr)
 
-- Added ctrl/shift key support to textbox. ([#1063] by [@vkahl])
+- Export `Image` and `ImageData` by default. ([#1011] by [@covercash2])
+- Re-export `druid_shell::Scalable` under `druid` namespace. ([#1075] by [@ForLoveOfCats])
+- `TextBox` now supports ctrl and shift hotkeys. ([#1076] by [@vkahl])
+- Added selection text color to textbox. ([#1093] by [@sysint64])
 
 ### Changed
 
-- `Image` and `ImageData` exported by default. ([#1011] by [@covercash2])
 - `Scale::from_scale` to `Scale::new`, and `Scale` methods `scale_x` / `scale_y` to `x` / `y`. ([#1042] by [@xStrom])
-- Major rework of keyboard event handling ([#1049] by [@raphlinus])
+- Major rework of keyboard event handling. ([#1049] by [@raphlinus])
 - `Container::rounded` takes `KeyOrValue<f64>` instead of `f64`. ([#1054] by [@binomial0])
-- Re-export `druid_shell::Scalable` under `druid` namespace. ([#1075] by [@ForLoveOfCats])
 
 ### Deprecated
 
@@ -31,11 +33,15 @@ You can find its changes [documented below](#060---2020-06-01).
 - macOS: Timers not firing during modal loop. ([#1028] by [@xStrom])
 - GTK: Directory selection now properly ignores file filters. ([#957] by [@xStrom])
 - GTK: Don't crash when receiving an external command while a file dialog is visible. ([#1043] by [@jneem])
-- Fix derive `Data` when type param bounds are defined ([#1058] by [@chris-zen])
+- `Data` derive now works when type param bounds are defined. ([#1058] by [@chris-zen])
 - Ensure that `update` is called after all commands. ([#1062] by [@jneem])
 - X11: Support idle callbacks. ([#1072] by [@jneem])
 - GTK: Don't interrupt `KeyEvent.repeat` when releasing another key. ([#1081] by [@raphlinus])
 - X11: Set some more common window properties. ([#1097] by [@psychon])
+- X11: Support timers. ([#1096] by [@psychon])
+- `EnvScope` now also updates the `Env` during `Widget::lifecycle`. ([#1100] by [@finnerale])
+- `WidgetExt::debug_widget_id` and `debug_paint_layout` now also apply to the widget they are called on. ([#1100] by [@finnerale])
+- X11: Fix X11 errors caused by destroyed windows ([#1103] by [@jneem])
 
 ### Visual
 
@@ -53,7 +59,7 @@ You can find its changes [documented below](#060---2020-06-01).
 ### Maintenance
 
 - Standardized web targeting terminology. ([#1013] by [@xStrom])
-- X11: Ported the X11 backend to `x11rb`. ([#1025] by [@jneem])
+- X11: Ported the X11 backend to [`x11rb`](https://github.com/psychon/x11rb). ([#1025] by [@jneem])
 
 ### Outside News
 
@@ -250,6 +256,7 @@ Last release without a changelog :(
 [@chris-zen]: https://github.com/chris-zen
 [@vkahl]: https://github.com/vkahl
 [@psychon]: https://github.com/psychon
+[@sysint64]: https://github.com/sysint64
 
 [#599]: https://github.com/linebender/druid/pull/599
 [#611]: https://github.com/linebender/druid/pull/611
@@ -357,11 +364,18 @@ Last release without a changelog :(
 [#1050]: https://github.com/linebender/druid/pull/1050
 [#1054]: https://github.com/linebender/druid/pull/1054
 [#1058]: https://github.com/linebender/druid/pull/1058
-[#1075]: https://github.com/linebender/druid/pull/1075
+[#1061]: https://github.com/linebender/druid/pull/1061
 [#1062]: https://github.com/linebender/druid/pull/1062
 [#1072]: https://github.com/linebender/druid/pull/1072
+[#1075]: https://github.com/linebender/druid/pull/1075
+[#1076]: https://github.com/linebender/druid/pull/1076
 [#1081]: https://github.com/linebender/druid/pull/1081
+[#1096]: https://github.com/linebender/druid/pull/1096
 [#1097]: https://github.com/linebender/druid/pull/1097
+[#1093]: https://github.com/linebender/druid/pull/1093
+[#1100]: https://github.com/linebender/druid/pull/1100
+[#1103]: https://github.com/linebender/druid/pull/1103
+
 
 [Unreleased]: https://github.com/linebender/druid/compare/v0.6.0...master
 [0.6.0]: https://github.com/linebender/druid/compare/v0.5.0...v0.6.0
@@ -369,4 +383,3 @@ Last release without a changelog :(
 [0.4.0]: https://github.com/linebender/druid/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/linebender/druid/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/linebender/druid/compare/v0.3.0...v0.3.1
-
