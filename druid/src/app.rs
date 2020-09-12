@@ -20,9 +20,9 @@ use crate::shell::{Application, Error as PlatformError, WindowBuilder, WindowHan
 use crate::widget::LabelText;
 use crate::win_handler::{AppHandler, AppState};
 use crate::window::WindowId;
-use crate::{
-    theme, AppDelegate, Data, DruidHandler, Env, LocalizedString, MenuDesc, Widget, WidgetExt,
-};
+use crate::{theme, AppDelegate, Data, DruidHandler, Env, LocalizedString, MenuDesc, Widget, WidgetExt, MenuItem, Command, Selector};
+use crate::commands;
+use crate::tracing::TraceFilter;
 
 /// A function that modifies the initial environment.
 type EnvSetupFn<T> = dyn FnOnce(&mut Env, &T);
@@ -121,6 +121,8 @@ impl<T: Data> AppLauncher<T> {
         let app = Application::new()?;
 
         let mut env = theme::init();
+        #[cfg(feature = "trace")]
+        env.set(Env::TRACE_FILTER, TraceFilter::create_filter());
         if let Some(f) = self.env_setup.take() {
             f(&mut env, &data);
         }
@@ -242,6 +244,20 @@ impl<T: Data> WindowDesc<T> {
         let data = state.data();
         let env = state.env();
         self.title.resolve(&data, &env);
+
+        #[cfg(feature = "trace")]
+        let tf = env.get(Env::TRACE_FILTER);
+        #[cfg(feature = "trace")]
+        match self.menu {
+            Some(m) => {
+                self.menu = Some(m.append(tf.generate_menu()))
+            },
+            None => {
+                let mut base = MenuDesc::empty();
+                base = base.append(tf.generate_menu());
+                self.menu = Some(base)
+            }
+        };
 
         let platform_menu = self.menu.as_mut().map(|m| m.build_window_menu(&data, &env));
 

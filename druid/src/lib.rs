@@ -153,6 +153,8 @@ pub mod lens;
 mod localization;
 mod menu;
 mod mouse;
+#[cfg(feature = "trace")]
+pub mod tracing;
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests;
@@ -174,7 +176,7 @@ pub use shell::{
     MouseButton, MouseButtons, RawMods, Scalable, Scale, SysMods, Text, TimerToken, WindowHandle,
 };
 
-pub use crate::core::WidgetPod;
+pub use crate::core::{WidgetPod, DruidPod};
 pub use app::{AppLauncher, WindowDesc};
 pub use app_delegate::{AppDelegate, DelegateCtx};
 pub use box_constraints::BoxConstraints;

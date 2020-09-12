@@ -128,8 +128,10 @@ pub enum Target {
 pub mod sys {
     use std::any::Any;
 
-    use super::Selector;
+    use super::{Selector, Command as SysCommand};
     use crate::{FileDialogOptions, FileInfo, SingleUse};
+    use crate::event::Event::Command;
+    use crate::tracing::FilterEvents;
 
     /// Quit the running application. This command is handled by the druid library.
     pub const QUIT_APP: Selector = Selector::new("druid-builtin.quit-app");
@@ -242,6 +244,44 @@ pub mod sys {
 
     /// Redo.
     pub const REDO: Selector = Selector::new("druid-builtin.menu-redo");
+
+    pub const GENERIC_TRACE_COMMAND: Selector<FilterEvents> = Selector::new("generic-trace-event");
+
+    /*pub const FILTER_KEY_DOWN_EVENT: Selector<bool> = Selector::new("filter-key-down-event");
+
+    pub const FILTER_WINDOW_SIZE_EVENT: Selector = Selector::new("filter-Window-Size-event");
+
+    pub const FILTER_MOUSE_DOWN_EVENT: Selector = Selector::new("filter-Mouse-Down-event");
+
+    pub const FILTER_MOUSE_UP_EVENT: Selector = Selector::new("filter-Mouse-Up-event");
+
+    pub const FILTER_WHEEL_EVENT: Selector = Selector::new("filter-Wheel-event");
+
+    pub const FILTER_KEY_UP_EVENT: Selector = Selector::new("filter-Key-Up-event");
+
+    pub const FILTER_PASTE_EVENT_EVENT: Selector = Selector::new("filter-Paste-event");
+
+    pub const FILTER_ZOOM_EVENT: Selector = Selector::new("filter-Zoom-event");
+
+    pub const FILTER_TIMER_EVENT: Selector = Selector::new("filter-Timer-event");
+
+    pub const FILTER_COMMAND_EVENT: Selector = Selector::new("filter-Command-event");
+
+    pub const FILTER_WINDOW_CONNECTED_EVENT: Selector = Selector::new("filter-Window-Connected-event");
+
+    pub const FILTER_MOUSE_MOVE_EVENT: Selector = Selector::new("filter-Mouse-Move-event");
+
+    pub const FILTER_WIDGET_ADDED_LIFECYCLE_EVENT: Selector = Selector::new("filter-widget-added-event");
+
+    pub const FILTER_HOT_CHANGED_LIFECYCLE_EVENT: Selector = Selector::new("filter-Command-event");*/
+
+    /*pub const FILTER_SIZE_LIFECYCLE_EVENT: Selector = Selector::new("filter-Window-Connected-event");
+
+    pub const FILTER_ANIM_FRAME_LIFECYCLE_EVENT: Selector = Selector::new("filter-Mouse-Move-event");
+
+    pub const FILTER_SIZE_LIFECYCLE_EVENT: Selector = Selector::new("filter-Window-Connected-event");
+
+    pub const FILTER_ANIM_FRAME_LIFECYCLE_EVENT: Selector = Selector::new("filter-Mouse-Move-event");*/
 }
 
 impl Selector<()> {

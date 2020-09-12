@@ -356,6 +356,72 @@ impl<T, W: Widget<T>> WidgetPod<T, W> {
     }
 }
 
+pub trait DruidPod<T> {
+    fn paint_raw(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env);
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env);
+    fn paint_always(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env);
+    fn paint_impl(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env, paint_if_not_visible: bool);
+    fn make_widget_id_layout_if_needed(&mut self, id: WidgetId, ctx: &mut PaintCtx, env: &Env);
+    fn debug_paint_widget_ids(&self, ctx: &mut PaintCtx, env: &Env);
+    fn debug_paint_layout_bounds(&self, ctx: &mut PaintCtx, env: &Env);
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env);
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env);
+    fn layout(
+        &mut self,
+        ctx: &mut LayoutCtx,
+        bc: &BoxConstraints,
+        data: &T,
+        env: &Env,
+    );
+    fn update(&mut self, ctx: &mut UpdateCtx, data: &T, env: &Env);
+}
+
+impl<T: Data, W: Widget<T>> DruidPod<T> for WidgetPod<T, W> {
+    fn paint_raw(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        unimplemented!()
+    }
+
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        unimplemented!()
+    }
+
+    fn paint_always(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
+        unimplemented!()
+    }
+
+    fn paint_impl(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env, paint_if_not_visible: bool) {
+        unimplemented!()
+    }
+
+    fn make_widget_id_layout_if_needed(&mut self, id: WidgetId, ctx: &mut PaintCtx, env: &Env) {
+        unimplemented!()
+    }
+
+    fn debug_paint_widget_ids(&self, ctx: &mut PaintCtx, env: &Env) {
+        unimplemented!()
+    }
+
+    fn debug_paint_layout_bounds(&self, ctx: &mut PaintCtx, env: &Env) {
+        unimplemented!()
+    }
+
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
+        unimplemented!()
+    }
+
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+        unimplemented!()
+    }
+
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) {
+        unimplemented!()
+    }
+
+    fn update(&mut self, ctx: &mut UpdateCtx, data: &T, env: &Env) {
+        unimplemented!()
+    }
+}
+
 impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
     /// Paint a child widget.
     ///
@@ -564,7 +630,6 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
 
         // If we need to replace either the event or its data.
         let mut modified_event = None;
-        let mut ignore_event_for_tracing = false;
 
         let recurse = match event {
             Event::Internal(internal) => match internal {
@@ -650,7 +715,6 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                 }
             }
             Event::MouseMove(mouse_event) => {
-                ignore_event_for_tracing = true;
                 let hot_changed = WidgetPod::set_hot_state(
                     &mut self.inner,
                     &mut self.state,
@@ -700,12 +764,10 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
         };
 
         if recurse {
+            let inner_event = modified_event.as_ref().unwrap_or(event);
+
             #[cfg(feature = "trace")]
-            let mut _guard = None;
-            #[cfg(feature = "trace")]
-            if !ignore_event_for_tracing {
-                _guard = Some(xi_trace::trace_block_payload(format!("{:?}", self.id()), &["event"], format!("{:?}", modified_event)));
-            }
+            let _guard = env.get(Env::TRACE_FILTER).filter_event_payload(inner_event, format!("{:?}", self.id()), &["event"], format!("{:?}", inner_event));
 
             let mut inner_ctx = EventCtx {
                 cursor: ctx.cursor,
@@ -714,7 +776,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
                 is_handled: false,
                 is_root: false,
             };
-            let inner_event = modified_event.as_ref().unwrap_or(event);
+
             inner_ctx.widget_state.has_active = false;
 
             self.inner.event(&mut inner_ctx, &inner_event, data, env);
@@ -730,7 +792,7 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
 
     pub fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
         #[cfg(feature = "trace")]
-        let _guard = xi_trace::trace_block_payload(format!("{:?}", self.id()), &["lifecycle"], format!("{:?}", event));
+        let _guard = env.get(Env::TRACE_FILTER).filter_lifecycle_payload(event, format!("{:?}", self.id()), &["lifecycle"], format!("{:?}", event));
         // in the case of an internal routing event, if we are at our target
         // we may send an extra event after the actual event
         let mut extra_event = None;
@@ -867,9 +929,10 @@ impl<T: Data, W: Widget<T>> WidgetPod<T, W> {
             }
             _ => (),
         }
-
         #[cfg(feature = "trace")]
-        let _guard = xi_trace::trace_block(format!("updating {:?}", self.id()), &["update"]);
+        //let _guard = env.get(Env::TRACE_FILTER).filter_event_payload(event, format!("{:?}", self.id()), &["update"], format!("{:?}", event));
+        #[cfg(feature = "trace")]
+        //let _guard = xi_trace::trace_block(format!("updating {:?}", self.id()), &["update"]);
         let mut child_ctx = UpdateCtx {
             state: ctx.state,
             widget_state: &mut self.state,

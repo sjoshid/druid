@@ -20,7 +20,7 @@ use crate::kurbo::{Point, Rect, Size};
 use crate::widget::SizedBox;
 use crate::{
     BoxConstraints, Data, Env, Event, EventCtx, KeyOrValue, LayoutCtx, LifeCycle, LifeCycleCtx,
-    PaintCtx, UpdateCtx, Widget, WidgetPod,
+    PaintCtx, UpdateCtx, Widget, WidgetPod, DruidPod,
 };
 
 /// A container with either horizontal or vertical layout.
@@ -654,8 +654,6 @@ impl<T: Data> Widget<T> for Flex<T> {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &T, env: &Env) {
-        #[cfg(feature = "trace")]
-        let _guard = xi_trace::trace_payload(format!("{:?}", ctx.widget_id()), &["paint", "flex"], "payload?");
         for child in &mut self.children {
             child.widget.paint(ctx, data, env);
         }

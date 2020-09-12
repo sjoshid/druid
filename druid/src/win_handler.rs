@@ -38,6 +38,7 @@ use std::path::Path;
 use std::time::SystemTime;
 #[cfg(feature = "trace")]
 use chrono::Local;
+use crate::tracing::{TraceFilter, FilterEvents};
 
 pub(crate) const RUN_COMMANDS_TOKEN: IdleToken = IdleToken::new(1);
 
@@ -237,8 +238,8 @@ impl<T: Data> Inner<T> {
                 // on mac we need to keep the menu around
                 self.root_menu = win.menu.take();
                 // If there are even no pending windows, we quit the run loop.
+                #[cfg(any(target_os = "windows", feature = "x11"))]
                 if self.windows.count() == 0 {
-                    #[cfg(any(target_os = "windows", feature = "x11"))]
                     self.app.quit();
                 }
             }
@@ -366,6 +367,7 @@ impl<T: Data> Inner<T> {
         };
 
         if let Some(win) = self.windows.get_mut(source_id) {
+            //println!("{:?}", self.env.get(Env::TRACE_FILTER));
             win.event(&mut self.command_queue, event, &mut self.data, &self.env)
         } else {
             false
@@ -564,10 +566,23 @@ impl<T: Data> AppState<T> {
             }
             _ if cmd.is(sys_cmd::SHOW_WINDOW) => {
                 log::warn!("SHOW_WINDOW command must target a window.")
-            }
+            },
+            _ if cmd.is(sys_cmd::GENERIC_TRACE_COMMAND) => {
+                let event_type_to_trace = cmd.get_unchecked(sys_cmd::GENERIC_TRACE_COMMAND).to_owned();
+                let mut trace_filter = self.inner.borrow_mut().env.get(Env::TRACE_FILTER);
+                trace_filter.trace_event_on_off(event_type_to_trace);
+                println!("{:?}", trace_filter);
+                self.inner.borrow_mut().env.set(Env::TRACE_FILTER, trace_filter);
+            },
             _ => self.inner.borrow_mut().dispatch_cmd(target, cmd),
         }
     }
+
+    /*fn set_filter(&mut self, filter: FilterEvents) {
+        let mut trace_filter = self.inner.borrow_mut().env.get(Env::TRACE_FILTER);
+        trace_filter.trace_event_on_off(filter);
+        self.inner.borrow_mut().env.set(Env::TRACE_FILTER, trace_filter);
+    }*/
 
     fn show_open_panel(&mut self, cmd: Command, window_id: WindowId) {
         let options = cmd.get_unchecked(sys_cmd::SHOW_OPEN_PANEL).to_owned();
@@ -747,6 +762,7 @@ impl<T: Data> WinHandler for DruidHandler<T> {
         #[cfg(feature = "trace")]
         {
             let date = Local::now();
+            //sj_todo change this to milli second.
             let file_name = format!("{}.json", date.format("%Y-%m-%d-%H-%M-%S"));
             xi_trace::save(
                 Path::new(&file_name),

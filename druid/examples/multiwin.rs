@@ -40,8 +40,9 @@ struct State {
 pub fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     simple_logger::init().unwrap();
+    //let mut base = MenuDesc::empty();
     let main_window = WindowDesc::new(ui_builder)
-        .menu(make_menu(&State::default()))
+        .menu(make_default_menu())
         .title(
             LocalizedString::new("multiwin-demo-window-title").with_placeholder("Many windows!"),
         );
@@ -61,7 +62,7 @@ fn ui_builder() -> impl Widget<State> {
         .on_click(|ctx, _data, _env| ctx.submit_command(MENU_INCREMENT_ACTION, Global));
     let dec_button = Button::<State>::new("Remove menu item")
         .on_click(|ctx, _data, _env| ctx.submit_command(MENU_DECREMENT_ACTION, Global));
-    let new_button = Button::<State>::new("New window").on_click(|ctx, _data, _env| {
+    let new_button = Button::<State>::new("New Win").on_click(|ctx, _data, _env| {
         ctx.submit_command(sys_cmds::NEW_FILE, Target::Global);
     });
     let quit_button = Button::<State>::new("Quit app").on_click(|_ctx, _data, _env| {
@@ -153,19 +154,19 @@ impl AppDelegate<State> for Delegate {
         _target: Target,
         cmd: &Command,
         data: &mut State,
-        _env: &Env,
+        env: &Env,
     ) -> bool {
         match cmd {
             _ if cmd.is(sys_cmds::NEW_FILE) => {
                 let new_win = WindowDesc::new(ui_builder)
-                    .menu(make_menu(data))
+                    .menu(make_menu(data, env))
                     .window_size((data.selected as f64 * 100.0 + 300.0, 500.0));
                 ctx.new_window(new_win);
                 false
             }
             _ if cmd.is(MENU_COUNT_ACTION) => {
                 data.selected = *cmd.get_unchecked(MENU_COUNT_ACTION);
-                let menu = make_menu::<State>(data);
+                let menu = make_menu::<State>(data, env);
                 for id in &self.windows {
                     ctx.set_menu(menu.clone(), *id);
                 }
@@ -175,7 +176,7 @@ impl AppDelegate<State> for Delegate {
             // directly if desired?
             _ if cmd.is(MENU_INCREMENT_ACTION) => {
                 data.menu_count += 1;
-                let menu = make_menu::<State>(data);
+                let menu = make_menu::<State>(data, env);
                 for id in &self.windows {
                     ctx.set_menu(menu.clone(), *id);
                 }
@@ -183,7 +184,7 @@ impl AppDelegate<State> for Delegate {
             }
             _ if cmd.is(MENU_DECREMENT_ACTION) => {
                 data.menu_count = data.menu_count.saturating_sub(1);
-                let menu = make_menu::<State>(data);
+                let menu = make_menu::<State>(data, env);
                 for id in &self.windows {
                     ctx.set_menu(menu.clone(), *id);
                 }
@@ -223,7 +224,21 @@ impl AppDelegate<State> for Delegate {
 }
 
 #[allow(unused_assignments)]
-fn make_menu<T: Data>(state: &State) -> MenuDesc<T> {
+fn make_default_menu<T: Data>() -> MenuDesc<T> {
+    let mut base = MenuDesc::empty();
+    #[cfg(target_os = "macos")]
+        {
+            base = druid::platform_menus::mac::menu_bar();
+        }
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+        {
+            base = base.append(druid::platform_menus::win::file::default());
+        }
+    base
+}
+
+#[allow(unused_assignments)]
+fn make_menu<T: Data>(state: &State, env: &Env) -> MenuDesc<T> {
     let mut base = MenuDesc::empty();
     #[cfg(target_os = "macos")]
     {
@@ -247,6 +262,12 @@ fn make_menu<T: Data>(state: &State) -> MenuDesc<T> {
                 })
             }),
         );
+
+        #[cfg(feature = "trace")]
+        let tf = env.get(Env::TRACE_FILTER);
+        println!("{:?}", tf);
+        //#[cfg(feature = "trace")]
+            //base = base.append(tf.generate_menu());
     }
     base
 }

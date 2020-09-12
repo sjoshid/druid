@@ -111,6 +111,7 @@ use crate::keyboard_types::Key;
 use crate::kurbo::Point;
 use crate::shell::{HotKey, IntoKey, Menu as PlatformMenu, RawMods, SysMods};
 use crate::{commands, Command, Data, Env, LocalizedString, Selector};
+use crate::tracing::TraceFilter;
 
 /// A platform-agnostic description of an application, window, or context
 /// menu.
@@ -366,6 +367,10 @@ impl<T: Data> MenuDesc<T> {
             }
         }
         menu
+    }
+
+    fn add_debug_menu(&mut self, env: &Env) -> MenuDesc<T> {
+
     }
 
     /// Given a command identifier from druid-shell, returns the command

@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use crate::localization::L10nManager;
 use crate::{Color, Data, Point, Rect, Size};
+use crate::tracing::TraceFilter;
 
 /// An environment passed down through all widget traversals.
 ///
@@ -107,6 +108,7 @@ pub enum Value {
     Bool(bool),
     UnsignedInt(u64),
     String(String),
+    TraceFilter(TraceFilter)
 }
 // ANCHOR_END: value_type
 
@@ -186,6 +188,8 @@ impl Env {
     ///
     /// [`WidgetExt::debug_widget`]: trait.WidgetExt.html#method.debug_widget
     pub const DEBUG_WIDGET: Key<bool> = Key::new("druid.built-in.debug-widget");
+
+    pub const TRACE_FILTER: Key<TraceFilter> = Key::new("trace-filter");
 
     /// Gets a value from the environment, expecting it to be present.
     ///
@@ -360,6 +364,7 @@ impl Value {
             (Bool(_), Bool(_)) => true,
             (UnsignedInt(_), UnsignedInt(_)) => true,
             (String(_), String(_)) => true,
+            (TraceFilter(_), TraceFilter(_)) => true,
             _ => false,
         }
     }
@@ -376,6 +381,7 @@ impl Debug for Value {
             Value::Bool(b) => write!(f, "Bool {}", b),
             Value::UnsignedInt(x) => write!(f, "UnsignedInt {}", x),
             Value::String(s) => write!(f, "String {:?}", s),
+            Value::TraceFilter(filter) => write!(f, "TraceFilter {:?}", filter),
         }
     }
 }
@@ -528,6 +534,7 @@ impl_value_type_owned!(Color, Color);
 impl_value_type_owned!(Rect, Rect);
 impl_value_type_owned!(Point, Point);
 impl_value_type_owned!(Size, Size);
+impl_value_type_owned!(TraceFilter, TraceFilter);
 impl_value_type_borrowed!(str, String, String);
 
 impl<'a, T: ValueType<'a>> KeyOrValue<T> {

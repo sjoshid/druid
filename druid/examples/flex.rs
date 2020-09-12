@@ -284,8 +284,10 @@ fn build_widget(state: &Params) -> Box<dyn Widget<AppState>> {
     }
 
     if state.debug_layout {
+        println!("on");
         flex.debug_paint_layout().boxed()
     } else {
+        println!("off");
         flex.boxed()
     }
 }
