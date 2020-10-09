@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
+use std::mem;
 
 use fluent_bundle::types::AnyEq;
 use xml::reader::{EventReader, XmlEvent};
 
-use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, Widget};
+use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, Widget, WindowDesc};
 use druid::platform_menus::win::file::new;
 use druid::widget::{Flex, Label, LabelText};
-use std::mem;
 
 const WINDOW_TITLE: LocalizedString<HelloState> = LocalizedString::new("Hello World!");
 
@@ -54,8 +54,7 @@ impl<T> XmlTag<T> for FlexRowTag<T> where T: Data {
 
     fn get_wrapped(&mut self) -> Box<dyn Widget<T>> {
         let w = mem::take(&mut self.widget);
-        let wrapped_widget = w.unwrap();
-        Box::new(wrapped_widget)
+        Box::new(w.unwrap())
     }
 }
 
@@ -89,26 +88,31 @@ impl<T> XmlTag<T> for LabelTag<T> where T: Data {
 }
 
 fn main() {
-    let root_widget = parse_xml_for_root::<HelloState>();
-    /*let main_window = WindowDesc::new_app_with_boxed_root(root_widget)
-        .title(WINDOW_TITLE)
-        .window_size((400.0, 400.0));
+    let mut root_tag = parse_xml_for_root::<HelloState>();
+    if root_tag.len() == 1 {
+        let root_tag = &mut root_tag.remove(0);
+        let root_widget = root_tag.get_wrapped();
 
-    // create the initial app state
-    let initial_state = HelloState {
-        name: "World".into(),
-    };
+        let main_window = WindowDesc::new_app_with_boxed_root(root_widget)
+            .title(WINDOW_TITLE)
+            .window_size((400.0, 400.0));
 
-    // start the application
-    AppLauncher::with_window(main_window)
-        .launch(initial_state)
-        .expect("Failed to launch application");*/
+        // create the initial app state
+        let initial_state = HelloState {
+            name: "World".into(),
+        };
+
+        // start the application
+        AppLauncher::with_window(main_window)
+            .launch(initial_state)
+            .expect("Failed to launch application");
+    }
 }
 
 fn indent(size: usize) -> String {
     const INDENT: &'static str = "    ";
     (0..size).map(|_| INDENT)
-        .fold(String::with_capacity(size*INDENT.len()), |r, s| r + s)
+        .fold(String::with_capacity(size * INDENT.len()), |r, s| r + s)
 }
 
 fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>

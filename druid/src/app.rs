@@ -352,6 +352,22 @@ impl<T: Data> WindowDesc<T> {
         }
     }
 
+    pub fn new_app_with_boxed_root(root: Box<dyn Widget<T>>) -> WindowDesc<T>
+    {
+        let p = PendingWindow {
+            root,
+            title: LocalizedString::new("app-name").into(),
+            menu: MenuDesc::platform_default(),
+        };
+
+        WindowDesc {
+            pending: p,
+            config: WindowConfig::default(),
+            id: WindowId::next(),
+        }
+    }
+
+
     /// Set the title for this window. This is a [`LabelText`]; it can be either
     /// a `String`, a [`LocalizedString`], or a closure that computes a string;
     /// it will be kept up to date as the application's state changes.
