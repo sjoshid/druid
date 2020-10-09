@@ -4,9 +4,10 @@ use std::io::BufReader;
 use std::mem;
 
 use fluent_bundle::types::AnyEq;
+use xml::attribute::OwnedAttribute;
 use xml::reader::{EventReader, XmlEvent};
 
-use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, Widget, WindowDesc};
+use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, Widget, WindowDesc, Color};
 use druid::platform_menus::win::file::new;
 use druid::widget::{Flex, Label, LabelText};
 
@@ -32,9 +33,30 @@ struct FlexRowTag<T: Data> {
 }
 
 impl<T: Data> FlexRowTag<T> {
-    fn new() -> FlexRowTag<T> {
+    fn new(attributes: Vec<OwnedAttribute>) -> FlexRowTag<T> {
+        let mut flex = Flex::row();
+
+        for attribute in attributes {
+            let name = attribute.name;
+            let value = attribute.value;
+
+            match name.local_name.as_str() {
+                "align" => {
+                    match value.as_str() {
+                        "row" => {
+                            flex = Flex::row()
+                        },
+                        "column" => {
+                            flex = Flex::column()
+                        }
+                        _ => {},
+                    }
+                }
+                _ => {},
+            }
+        }
         FlexRowTag {
-            widget: Some(Flex::row()),
+            widget: Some(flex),
             children: Vec::new(),
             is_container: true,
         }
@@ -43,7 +65,7 @@ impl<T: Data> FlexRowTag<T> {
 
 impl<T> XmlTag<T> for FlexRowTag<T> where T: Data {
     fn is_container(&self) -> bool {
-        true
+        self.is_container
     }
 
     fn add_child(&mut self, mut child_tag: Box<dyn XmlTag<T>>) {
@@ -64,9 +86,27 @@ struct LabelTag<T: Data> {
 }
 
 impl<T: Data> LabelTag<T> {
-    fn new(text: impl Into<LabelText<T>>) -> LabelTag<T> {
+    fn new(attributes: Vec<OwnedAttribute>) -> LabelTag<T> {
+        let mut label = Label::new("");
+
+        for attribute in attributes {
+            let name = attribute.name;
+            let value = attribute.value;
+
+            match name.local_name.as_str() {
+                "text" => {
+                    label.set_text(value);
+                },
+                "color" => {
+                    let va: Vec<f64> = value.split(",").map(|e| e.parse::<f64>().unwrap()).collect();
+                    let color = Color::rgb(va[0], va[1], va[2]);
+                    label.set_text_color(color);
+                }
+                _ => {},
+            }
+        }
         LabelTag {
-            widget: Some(Label::new(text)),
+            widget: Some(label),
             is_container: false,
         }
     }
@@ -126,17 +166,17 @@ fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
 
     for e in parser {
         match e {
-            Ok(XmlEvent::StartElement { name, .. }) => {
+            Ok(XmlEvent::StartElement { name, attributes, .. }) => {
                 println!("{}+{}", indent(depth), name);
                 depth += 1;
-                let tag_widget: Box<dyn XmlTag<T>> = widget_factory(name.to_string());
+                let tag_widget: Box<dyn XmlTag<T>> = widget_factory(name.to_string(), attributes);
                 widget_stack.push(tag_widget);
             }
             Ok(XmlEvent::EndElement { name }) => {
                 depth -= 1;
-                println!("{}-{}", indent(depth), name);
                 if let Some(mut top) = widget_stack.pop() {
                     if top.is_container() {
+                        println!("{}-{}-{}", indent(depth), name, current_children.len());
                         // drain all elements from current_children and push it to top.
                         for c in current_children {
                             top.add_child(c);
@@ -160,16 +200,16 @@ fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
     current_children
 }
 
-fn widget_factory<T>(widget_name: String) -> Box<dyn XmlTag<T>>
+fn widget_factory<T>(widget_name: String, attributes: Vec<OwnedAttribute>) -> Box<dyn XmlTag<T>>
     where T: Data
 {
     match widget_name.as_str() {
         "Label" => {
-            Box::new(LabelTag::new(String::from("Sujit")))
+            Box::new(LabelTag::new(attributes))
         }
-        "RowFlex" => {
-            Box::new(FlexRowTag::new())
+        "Flex" => {
+            Box::new(FlexRowTag::new(attributes))
         }
-        _ => Box::new(FlexRowTag::new())
+        _ => Box::new(FlexRowTag::new(attributes))
     }
 }
