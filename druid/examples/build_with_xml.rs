@@ -18,7 +18,7 @@ struct HelloState {
 }
 
 trait XmlTag<T>
-    where T: Data + Sized
+    where T: Data
 {
     fn is_container(&self) -> bool;
     fn add_child(&mut self, child_tag: Box<dyn XmlTag<T>>);

@@ -1,10 +1,11 @@
 <RowFlex>
     <Label text="Hello, xml" />
     <Label text="Welcome to Druid" />
-    <RowFlex>
+    <Label text="Welcome to Druid" />
+    <!--<RowFlex>
         <RowFlex>
             <Label/>
         </RowFlex>
         <Label/>
-    </RowFlex>
+    </RowFlex>-->
 </RowFlex>
