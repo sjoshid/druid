@@ -8,6 +8,7 @@ use xml::reader::{EventReader, XmlEvent};
 use druid::{AppLauncher, Data, Lens, LensExt, LocalizedString, Widget};
 use druid::platform_menus::win::file::new;
 use druid::widget::{Flex, Label, LabelText};
+use std::mem;
 
 const WINDOW_TITLE: LocalizedString<HelloState> = LocalizedString::new("Hello World!");
 
@@ -17,15 +18,15 @@ struct HelloState {
 }
 
 trait XmlTag<T>
-    where T: Data
+    where T: Data + Sized
 {
     fn is_container(&self) -> bool;
     fn add_child(&mut self, child_tag: Box<dyn XmlTag<T>>);
-    fn get_wrapped(self) -> Box<dyn Widget<T>>;
+    fn get_wrapped(&mut self) -> Box<dyn Widget<T>>;
 }
 
 struct FlexRowTag<T: Data> {
-    widget: Flex<T>,
+    widget: Option<Flex<T>>,
     children: Vec<Box<dyn XmlTag<T>>>,
     is_container: bool,
 }
@@ -33,7 +34,7 @@ struct FlexRowTag<T: Data> {
 impl<T: Data> FlexRowTag<T> {
     fn new() -> FlexRowTag<T> {
         FlexRowTag {
-            widget: Flex::row(),
+            widget: Some(Flex::row()),
             children: Vec::new(),
             is_container: true,
         }
@@ -45,25 +46,28 @@ impl<T> XmlTag<T> for FlexRowTag<T> where T: Data {
         true
     }
 
-    fn add_child(&mut self, child_tag: Box<dyn XmlTag<T>>) {
-        /*let wrapped_widget = child_tag.get_wrapped();
-        self.widget.add_child(wrapped_widget);*/
+    fn add_child(&mut self, mut child_tag: Box<dyn XmlTag<T>>) {
+        let container_widget = self.widget.as_mut().unwrap();
+        let wrapped_widget = child_tag.get_wrapped();
+        container_widget.add_child(wrapped_widget);
     }
 
-    fn get_wrapped(self) -> Box<dyn Widget<T>> {
-        Box::new(self.widget)
+    fn get_wrapped(&mut self) -> Box<dyn Widget<T>> {
+        let w = mem::take(&mut self.widget);
+        let wrapped_widget = w.unwrap();
+        Box::new(wrapped_widget)
     }
 }
 
 struct LabelTag<T: Data> {
-    widget: Label<T>,
+    widget: Option<Label<T>>,
     is_container: bool,
 }
 
 impl<T: Data> LabelTag<T> {
     fn new(text: impl Into<LabelText<T>>) -> LabelTag<T> {
         LabelTag {
-            widget: Label::new(text),
+            widget: Some(Label::new(text)),
             is_container: false,
         }
     }
@@ -74,12 +78,13 @@ impl<T> XmlTag<T> for LabelTag<T> where T: Data {
         false
     }
 
-    fn add_child(&mut self, child_tag: Box<dyn XmlTag<T>>) {
+    fn add_child(&mut self, mut child_tag: Box<dyn XmlTag<T>>) {
         // do nothing
     }
 
-    fn get_wrapped(self) -> Box<dyn Widget<T>> {
-        Box::new(self.widget)
+    fn get_wrapped(&mut self) -> Box<dyn Widget<T>> {
+        let w = mem::take(&mut self.widget);
+        Box::new(w.unwrap())
     }
 }
 
