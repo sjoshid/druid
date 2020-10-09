@@ -79,7 +79,7 @@ impl<T> XmlTag<T> for LabelTag<T> where T: Data {
     }
 
     fn add_child(&mut self, mut child_tag: Box<dyn XmlTag<T>>) {
-        // do nothing
+        // do nothing. Label is not a container.
     }
 
     fn get_wrapped(&mut self) -> Box<dyn Widget<T>> {
