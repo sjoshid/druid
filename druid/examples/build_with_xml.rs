@@ -128,25 +128,22 @@ impl<T> XmlTag<T> for LabelTag<T> where T: Data {
 }
 
 fn main() {
-    let mut root_tag = parse_xml_for_root::<HelloState>();
-    if root_tag.len() == 1 {
-        let root_tag = &mut root_tag.remove(0);
-        let root_widget = root_tag.get_wrapped();
+    let mut root_tag = parse_xml_for_root::<HelloState>().unwrap_or_else(|| panic!("Invalid XML"));
+    let root_widget = root_tag.get_wrapped();
 
-        let main_window = WindowDesc::new_app_with_boxed_root(root_widget)
-            .title(WINDOW_TITLE)
-            .window_size((400.0, 400.0));
+    let main_window = WindowDesc::new_app_with_boxed_root(root_widget)
+        .title(WINDOW_TITLE)
+        .window_size((400.0, 400.0));
 
-        // create the initial app state
-        let initial_state = HelloState {
-            name: "World".into(),
-        };
+    // create the initial app state
+    let initial_state = HelloState {
+        name: "World".into(),
+    };
 
-        // start the application
-        AppLauncher::with_window(main_window)
-            .launch(initial_state)
-            .expect("Failed to launch application");
-    }
+    // start the application
+    AppLauncher::with_window(main_window)
+        .launch(initial_state)
+        .expect("Failed to launch application");
 }
 
 fn indent(size: usize) -> String {
@@ -155,7 +152,7 @@ fn indent(size: usize) -> String {
         .fold(String::with_capacity(size * INDENT.len()), |r, s| r + s)
 }
 
-fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
+fn parse_xml_for_root<T>() -> Option<Box<dyn XmlTag<T>>>
     where T: Data {
     let mut depth = 0;
     let file = File::open("C:\\Users\\joshi\\OneDrive\\druid\\druid\\examples\\test.xml").unwrap();
@@ -163,6 +160,7 @@ fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
     let mut widget_stack = Vec::new();
     let mut current_children = Vec::new();
     let mut parser = EventReader::new(file);
+    let mut root_widget = None;
 
     for e in parser {
         match e {
@@ -170,6 +168,10 @@ fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
                 println!("{}+{}", indent(depth), name);
                 depth += 1;
                 let tag_widget: Box<dyn XmlTag<T>> = widget_factory(name.to_string(), attributes);
+                if tag_widget.is_container() {
+                    let new_children = Vec::new();
+                    current_children.push(new_children);
+                }
                 widget_stack.push(tag_widget);
             }
             Ok(XmlEvent::EndElement { name }) => {
@@ -178,14 +180,18 @@ fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
                     if top.is_container() {
                         println!("{}-{}-{}", indent(depth), name, current_children.len());
                         // drain all elements from current_children and push it to top.
-                        for c in current_children {
+                        let mut last_container = current_children.pop().unwrap();
+                        for c in last_container {
                             top.add_child(c);
                         }
-                        let mut new_children = Vec::new();
-                        new_children.push(top);
-                        current_children = new_children;
+                        if let Some(new_last) =  current_children.last_mut() {
+                            new_last.push(top);
+                        } else {
+                            root_widget = Some(top);
+                        }
                     } else {
-                        current_children.push(top);
+                        let mut last_container = current_children.last_mut().unwrap();
+                        last_container.push(top);
                     }
                 }
             }
@@ -197,7 +203,7 @@ fn parse_xml_for_root<T>() -> Vec<Box<dyn XmlTag<T>>>
         }
     }
 
-    current_children
+    root_widget
 }
 
 fn widget_factory<T>(widget_name: String, attributes: Vec<OwnedAttribute>) -> Box<dyn XmlTag<T>>

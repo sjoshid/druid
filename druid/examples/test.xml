@@ -13,4 +13,6 @@
         <Label text="2" />
         <Label text="3" />
     </Flex>
+    <Label text="Welcome to Druid red" color="255,0,0"/>
+    <Label text="Welcome to Druid red" color="255,0,0"/>
 </Flex>
