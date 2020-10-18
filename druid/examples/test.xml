@@ -1,18 +1,4 @@
-<Flex align="row">
-    <!--<Label text="Hello, xml" />
-    <Label text="Welcome to Druid red" color="255,0,0"/>-->
-    <Flex align="column">
-        <Label text="1" />
-        <Label text="2" />
-        <Label text="3" />
-    </Flex>
-    <Label text="hello" />
-    <Label text="Welcome to Druid red" color="255,0,0"/>
-    <Flex align="column">
-        <Label text="1" />
-        <Label text="2" />
-        <Label text="3" />
-    </Flex>
-    <Label text="Welcome to Druid red" color="255,0,0"/>
-    <Label text="Welcome to Druid red" color="255,0,0"/>
+<Flex align="column">
+    <Label text="Hello, XML" />
+    <Label text="Welcome to Druid (in red)" color="255,0,0"/>
 </Flex>
