@@ -171,6 +171,11 @@ pub mod theme;
 pub mod widget;
 mod win_handler;
 mod window;
+mod calendar_data;
+
+pub use calendar_data::DateWidgetData;
+pub use calendar_data::CurrentTimeData;
+pub use calendar_data::CalendarData;
 
 // Types from kurbo & piet that are required by public API.
 pub use kurbo::{Affine, Insets, Point, Rect, Size, Vec2};

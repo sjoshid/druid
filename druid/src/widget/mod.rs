@@ -53,7 +53,11 @@ mod view_switcher;
 #[allow(clippy::module_inception)]
 mod widget;
 mod widget_ext;
+mod current_time_widget;
+mod calendar;
 
+pub use current_time_widget::CurrentTimeWidget;
+pub use calendar::Calendar;
 pub use self::image::Image;
 pub use align::Align;
 pub use button::Button;
