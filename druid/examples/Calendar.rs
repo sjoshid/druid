@@ -16,7 +16,6 @@ fn ui_builder() -> impl Widget<DateWidgetData> {
     let mut c1 = Flex::column();
 
     let current_time_widget = CurrentTimeWidget::new().lens(DateWidgetData::current_time);
-
     let calendar_widget = Calendar::new().lens(DateWidgetData::day_and_month);
 
     c1.add_child(current_time_widget);
@@ -40,7 +39,6 @@ fn main() {
         current_minute_of_hour: today.minute(),
         current_second_of_hour: today.second(),
         twelve_hour_format: true,
-        time_separator: ':',
     };
 
     // Set our initial data

@@ -67,8 +67,6 @@ impl Widget<CalendarData> for Calendar {
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &CalendarData, env: &Env) {
-        println!("lifecycle {:?}", event);
-
         match event {
             LifeCycle::WidgetAdded => {
                 for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {

@@ -25,8 +25,6 @@ pub struct CurrentTimeData {
     pub current_second_of_hour: u32,
     //12 or 24 hr format
     pub twelve_hour_format: bool,
-    //time separator
-    pub time_separator: char,
 }
 
 // do I need this?
