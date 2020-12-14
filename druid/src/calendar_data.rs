@@ -1,5 +1,6 @@
 use druid::{Data, Lens};
 use crate::Size;
+use chrono::Weekday;
 
 pub const DEFAULT_DAY_WIDGET_SIZE: Size = Size::new(25.0, 25.0);
 pub const DEFAULT_GRID_SPACING: f64 = 5.0;
@@ -22,7 +23,7 @@ pub struct CurrentTimeData {
     /// 00..59
     pub current_minute_of_hour: u32,
     /// 00..59
-    pub current_second_of_hour: u32,
+    pub current_second_of_minute: u32,
     //12 or 24 hr format
     pub twelve_hour_format: bool,
 }
@@ -32,6 +33,7 @@ pub struct CurrentTimeData {
 pub struct CalendarData {
     /// 1..28/29/30/31
     pub current_day_of_month: u32,
+    pub current_day_of_week: u32,
     // this will be used to highlight current day.
     /// 1..12
     pub current_month_of_year: u32,

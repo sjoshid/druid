@@ -1,13 +1,16 @@
-use druid::{WidgetPod, Widget, EventCtx, LifeCycle, PaintCtx, BoxConstraints, LifeCycleCtx, Size, LayoutCtx, Event, Env, UpdateCtx, KeyOrValue, FontDescriptor, Color, CurrentTimeData};
+use druid::{TimerToken, WidgetPod, Widget, EventCtx, LifeCycle, PaintCtx, BoxConstraints, LifeCycleCtx, Size, LayoutCtx, Event, Env, UpdateCtx, KeyOrValue, FontDescriptor, Color, CurrentTimeData};
 use druid::widget::{Container, Label};
 use std::ops::Add;
 use crate::calendar_data::{DEFAULT_DAY_WIDGET_SIZE, DEFAULT_GRID_SPACING, DAYS_OF_WEEK};
 use crate::{Rect, FontFamily};
 use std::sync::Arc;
+use std::time::Duration;
+use chrono::{Local, Timelike};
 
 pub struct CurrentTimeWidget {
     time_label: WidgetPod<CurrentTimeData, Container<CurrentTimeData>>,
     am_pm_label: WidgetPod<CurrentTimeData, Container<CurrentTimeData>>,
+    timer_id: TimerToken,
 }
 
 impl CurrentTimeWidget {
@@ -20,7 +23,8 @@ impl CurrentTimeWidget {
 
         CurrentTimeWidget {
             time_label: hour_label,
-            am_pm_label
+            am_pm_label,
+            timer_id: TimerToken::INVALID,
         }
     }
 
@@ -31,9 +35,9 @@ impl CurrentTimeWidget {
                 if hour == 0 {
                     hour = 12;
                 }
-                format!("{:0>2}:{:0>2}:{:0>2}", hour, c.current_minute_of_hour, c.current_second_of_hour)
+                format!("{:0>2}:{:0>2}:{:0>2}", hour, c.current_minute_of_hour, c.current_second_of_minute)
             } else {
-                format!("{:0>2}:{:0>2}:{:0>2}", c.current_hour_of_day, c.current_minute_of_hour, c.current_second_of_hour)
+                format!("{:0>2}:{:0>2}:{:0>2}", c.current_hour_of_day, c.current_minute_of_hour, c.current_second_of_minute)
             }
         }
     }
@@ -56,6 +60,24 @@ impl CurrentTimeWidget {
 impl Widget<CurrentTimeData> for CurrentTimeWidget {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut CurrentTimeData, env: &Env) {
         //update here
+        match event {
+            Event::WindowConnected => {
+                let deadline = Duration::from_millis(1000);
+                self.timer_id = ctx.request_timer(deadline);
+            }
+            Event::Timer(id) => {
+                if *id == self.timer_id {
+                    let deadline = Duration::from_millis(1000); // one sec
+                    let today = Local::now();
+                    data.current_hour_of_day = today.hour();
+                    data.current_minute_of_hour = today.minute();
+                    data.current_second_of_minute = today.second();
+
+                    self.timer_id = ctx.request_timer(deadline);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &CurrentTimeData, env: &Env) {
@@ -73,7 +95,7 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &CurrentTimeData, env: &Env) -> Size {
-        let label_size = self.time_label.layout(ctx, bc, &data, env);
+        let time_label_size = self.time_label.layout(ctx, bc, &data, env);
 
         let mut x_position = DEFAULT_GRID_SPACING;
         let mut y_position = DEFAULT_GRID_SPACING;
@@ -81,13 +103,14 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
         let time_rect = Rect::new(
             x_position,
             y_position,
-            x_position + label_size.width,
-            y_position + label_size.height,
+            x_position + time_label_size.width,
+            y_position + time_label_size.height,
         );
         self.time_label.set_layout_rect(ctx, &data, env, time_rect);
-        x_position += x_position + label_size.width + DEFAULT_GRID_SPACING;
+        x_position += x_position + time_label_size.width + DEFAULT_GRID_SPACING;
 
         let am_pm_label = self.am_pm_label.layout(ctx, bc, &data, env);
+        y_position += time_label_size.height - am_pm_label.height - 5.;
 
         let am_pm_rect = Rect::new(
             x_position,
@@ -99,7 +122,7 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
 
         Size {
             width: (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING) * DAYS_OF_WEEK.len() as f64,
-            height: label_size.height,
+            height: time_label_size.height,
         }
     }
 
