@@ -35,9 +35,11 @@ use winapi::shared::dxgitype::*;
 use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
 use winapi::shared::winerror::*;
+use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::shellscalingapi::MDT_EFFECTIVE_DPI;
 use winapi::um::unknwnbase::*;
+use winapi::um::uxtheme::*;
 use winapi::um::wingdi::*;
 use winapi::um::winnt::*;
 use winapi::um::winuser::*;
@@ -67,7 +69,7 @@ use crate::mouse::{Cursor, CursorDesc, MouseButton, MouseButtons, MouseEvent};
 use crate::region::Region;
 use crate::scale::{Scalable, Scale, ScaledArea};
 use crate::window;
-use crate::window::{DeferredOp, FileDialogToken, IdleToken, TimerToken, WinHandler, WindowLevel};
+use crate::window::{FileDialogToken, IdleToken, TimerToken, WinHandler, WindowLevel};
 
 /// The platform target DPI.
 ///
@@ -116,6 +118,38 @@ pub enum PresentStrategy {
     /// but with a redirection surface for GDI compatibility. Resize is
     /// very laggy and artifacty.
     FlipRedirect,
+}
+
+/// An enumeration of operations that might need to be deferred until the `WinHandler` is dropped.
+///
+/// We work hard to avoid calling into `WinHandler` re-entrantly. Since we use
+/// the system's event loop, and since the `WinHandler` gets a `WindowHandle` to use, this implies
+/// that none of the `WindowHandle`'s methods can return control to the system's event loop
+/// (because if it did, the system could call back into druid-shell with some mouse event, and then
+/// we'd try to call the `WinHandler` again).
+///
+/// The solution is that for every `WindowHandle` method that *wants* to return control to the
+/// system's event loop, instead of doing that we queue up a deferrred operation and return
+/// immediately. The deferred operations will run whenever the currently running `WinHandler`
+/// method returns.
+///
+/// An example call trace might look like:
+/// 1. the system hands a mouse click event to druid-shell
+/// 2. druid-shell calls `WinHandler::mouse_up`
+/// 3. after some processing, the `WinHandler` calls `WindowHandle::save_as`, which schedules a
+///   deferred op and returns immediately
+/// 4. after some more processing, `WinHandler::mouse_up` returns
+/// 5. druid-shell displays the "save as" dialog that was requested in step 3.
+enum DeferredOp {
+    SaveAs(FileDialogOptions, FileDialogToken),
+    Open(FileDialogOptions, FileDialogToken),
+    ContextMenu(Menu, Point),
+    ShowTitlebar(bool),
+    SetPosition(Point),
+    SetSize(Size),
+    SetResizable(bool),
+    SetWindowState(window::WindowState),
+    ReleaseMouseCapture,
 }
 
 #[derive(Clone)]
@@ -203,9 +237,10 @@ struct DxgiState {
     swap_chain: *mut IDXGISwapChain1,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CustomCursor(Arc<HCursor>);
 
+#[derive(PartialEq)]
 struct HCursor(HCURSOR);
 
 impl Drop for HCursor {
@@ -320,12 +355,17 @@ fn set_style(hwnd: HWND, resizable: bool, titlebar: bool) {
 }
 
 impl WndState {
-    fn rebuild_render_target(&mut self, d2d: &D2DFactory, scale: Scale) {
+    fn rebuild_render_target(&mut self, d2d: &D2DFactory, scale: Scale) -> Result<(), Error> {
         unsafe {
             let swap_chain = self.dxgi_state.as_ref().unwrap().swap_chain;
-            let rt = paint::create_render_target_dxgi(d2d, swap_chain, scale)
-                .map(|rt| rt.as_device_context().expect("TODO remove this expect"));
-            self.render_target = rt.ok();
+            match paint::create_render_target_dxgi(d2d, swap_chain, scale) {
+                Ok(rt) => {
+                    self.render_target =
+                        Some(rt.as_device_context().expect("TODO remove this expect"));
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
         }
     }
 
@@ -514,9 +554,51 @@ impl MyWndProc {
                     };
                     self.with_wnd_state(|s| s.handler.open_file(token, info));
                 }
+                DeferredOp::ContextMenu(menu, pos) => {
+                    let hmenu = menu.into_hmenu();
+                    let pos = pos.to_px(self.scale()).round();
+                    unsafe {
+                        let mut point = POINT {
+                            x: pos.x as i32,
+                            y: pos.y as i32,
+                        };
+                        ClientToScreen(hwnd, &mut point);
+                        if TrackPopupMenu(hmenu, TPM_LEFTALIGN, point.x, point.y, 0, hwnd, null())
+                            == FALSE
+                        {
+                            warn!("failed to track popup menu");
+                        }
+                    }
+                }
+                DeferredOp::ReleaseMouseCapture => unsafe {
+                    if ReleaseCapture() == FALSE {
+                        let result = HRESULT_FROM_WIN32(GetLastError());
+                        // When result is zero, it appears to just mean that the capture was already released
+                        // (which can easily happen since this is deferred).
+                        if result != 0 {
+                            warn!("failed to release mouse capture: {}", Error::Hr(result));
+                        }
+                    }
+                },
             }
         } else {
             warn!("Could not get HWND");
+        }
+    }
+
+    fn get_system_metric(&self, metric: c_int) -> i32 {
+        unsafe {
+            // This is only supported on windows 10.
+            if let Some(func) = OPTIONAL_FUNCTIONS.GetSystemMetricsForDpi {
+                let dpi = self.scale().x() * SCALE_TARGET_DPI;
+                func(metric, dpi as u32)
+            }
+            // Support for older versions of windows
+            else {
+                // Note: On Windows 8.1 GetSystemMetrics() is scaled to the DPI the window
+                // was created with, and not the current DPI of the window
+                GetSystemMetrics(metric)
+            }
         }
     }
 }
@@ -587,6 +669,18 @@ impl WndProc for MyWndProc {
             WM_ACTIVATE => {
                 if LOWORD(wparam as u32) as u32 != 0 {
                     unsafe {
+                        if !self.has_titlebar() {
+                            // This makes windows paint the dropshadow around the window
+                            // since we give it a "1 pixel frame" that we paint over anyway.
+                            // From my testing top seems to be the best option when it comes to avoiding resize artifacts.
+                            let margins = MARGINS {
+                                cxLeftWidth: 0,
+                                cxRightWidth: 0,
+                                cyTopHeight: 1,
+                                cyBottomHeight: 0,
+                            };
+                            DwmExtendFrameIntoClientArea(hwnd, &margins);
+                        }
                         if SetWindowPos(
                             hwnd,
                             HWND_TOPMOST,
@@ -602,7 +696,7 @@ impl WndProc for MyWndProc {
                         ) == 0
                         {
                             warn!(
-                                "failed to update window style: {}",
+                                "SetWindowPos failed with error: {}",
                                 Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
                             );
                         };
@@ -613,6 +707,10 @@ impl WndProc for MyWndProc {
             WM_ERASEBKGND => Some(0),
             WM_SETFOCUS => {
                 self.with_wnd_state(|s| s.handler.got_focus());
+                Some(0)
+            }
+            WM_KILLFOCUS => {
+                self.with_wnd_state(|s| s.handler.lost_focus());
                 Some(0)
             }
             WM_PAINT => unsafe {
@@ -665,86 +763,78 @@ impl WndProc for MyWndProc {
                 Some(0)
             },
             WM_NCCALCSIZE => unsafe {
-                // Workaround to get rid of caption but keeping the borders created by it.
-                let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-                if style == 0 {
-                    warn!(
-                        "failed to get window style: {}",
-                        Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
-                    );
-                    return Some(0);
-                }
-
-                if !self.has_titlebar() && (style & WS_CAPTION) != 0 {
-                    let s: *mut NCCALCSIZE_PARAMS = lparam as *mut NCCALCSIZE_PARAMS;
-                    if let Some(mut s) = s.as_mut() {
-                        if let Some(func) = OPTIONAL_FUNCTIONS.GetSystemMetricsForDpi {
-                            // This function is only supported on windows 10
-                            let dpi = self.scale().x() * SCALE_TARGET_DPI;
-                            // Height of the different parts that make the titlebar
-                            let border = func(SM_CXPADDEDBORDER, dpi as u32);
-                            let frame = func(SM_CYSIZEFRAME, dpi as u32);
-                            let caption = func(SM_CYCAPTION, dpi as u32);
-                            // Maximized window titlebar height is just the caption
-                            if (style & WS_MAXIMIZE) != 0 {
-                                s.rgrc[0].top -= (caption) as i32;
-                            }
-                            // Normal window titlebar height is a combination of border frame and caption
-                            else {
-                                s.rgrc[0].top -= (border + frame + caption) as i32;
-                            }
-                        }
-                        // Support for windows 8.1
-                        else {
-                            // Note: With SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) that we use on 8.1,
-                            // Windows will not scale the titlebar area when DPI changes.
-                            // Instead it is "stuck" at the DPI setting the window was created with.
-                            // GetSystemMetrics() also reports values with the DPI the window was created with.
-                            let border = GetSystemMetrics(SM_CXPADDEDBORDER);
-                            let frame = GetSystemMetrics(SM_CYSIZEFRAME);
-                            let caption = GetSystemMetrics(SM_CYCAPTION);
-                            if (style & WS_MAXIMIZE) != 0 {
-                                s.rgrc[0].top -= (caption) as i32;
-                            } else {
-                                s.rgrc[0].top -= (border + frame + caption) as i32;
+                if wparam != 0 as usize && !self.has_titlebar() {
+                    if let Ok(handle) = self.handle.try_borrow() {
+                        if handle.get_window_state() == window::WindowState::MAXIMIZED {
+                            // When maximized, windows still adds offsets for the frame
+                            // so we counteract them here.
+                            let s: *mut NCCALCSIZE_PARAMS = lparam as *mut NCCALCSIZE_PARAMS;
+                            if let Some(mut s) = s.as_mut() {
+                                let border = self.get_system_metric(SM_CXPADDEDBORDER);
+                                let frame = self.get_system_metric(SM_CYSIZEFRAME);
+                                s.rgrc[0].top += (border + frame) as i32;
+                                s.rgrc[0].right -= (border + frame) as i32;
+                                s.rgrc[0].left += (border + frame) as i32;
+                                s.rgrc[0].bottom -= (border + frame) as i32;
                             }
                         }
                     }
+                    return Some(0);
                 }
                 None
             },
             WM_NCHITTEST => unsafe {
                 let mut hit = DefWindowProcW(hwnd, msg, wparam, lparam);
-                if !self.has_titlebar() {
-                    let mut rect = RECT {
-                        left: 0,
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                    };
-                    if GetWindowRect(hwnd, &mut rect) == 0 {
-                        warn!(
-                            "failed to get window rect: {}",
-                            Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
-                        );
-                    };
-                    let a = HIWORD(lparam as u32) as i16 as i32 - rect.top;
-                    if (a == 0) && (hit != HTTOPLEFT) && (hit != HTTOPRIGHT) && self.resizable() {
-                        hit = HTTOP;
+                if !self.has_titlebar() && self.resizable() {
+                    if let Ok(handle) = self.handle.try_borrow() {
+                        if handle.get_window_state() != window::WindowState::MAXIMIZED {
+                            let mut rect = RECT {
+                                left: 0,
+                                top: 0,
+                                right: 0,
+                                bottom: 0,
+                            };
+                            if GetWindowRect(hwnd, &mut rect) == 0 {
+                                warn!(
+                                    "failed to get window rect: {}",
+                                    Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
+                                );
+                            };
+                            let y_cord = HIWORD(lparam as u32) as i16 as i32;
+                            let x_cord = LOWORD(lparam as u32) as i16 as i32;
+                            let HIT_SIZE = self.get_system_metric(SM_CYSIZEFRAME)
+                                + self.get_system_metric(SM_CXPADDEDBORDER);
+
+                            if y_cord - rect.top <= HIT_SIZE {
+                                if x_cord - rect.left <= HIT_SIZE {
+                                    hit = HTTOPLEFT;
+                                } else if rect.right - x_cord <= HIT_SIZE {
+                                    hit = HTTOPRIGHT;
+                                } else {
+                                    hit = HTTOP;
+                                }
+                            } else if rect.bottom - y_cord <= HIT_SIZE {
+                                if x_cord - rect.left <= HIT_SIZE {
+                                    hit = HTBOTTOMLEFT;
+                                } else if rect.right - x_cord <= HIT_SIZE {
+                                    hit = HTBOTTOMRIGHT;
+                                } else {
+                                    hit = HTBOTTOM;
+                                }
+                            } else if x_cord - rect.left <= HIT_SIZE {
+                                hit = HTLEFT;
+                            } else if rect.right - x_cord <= HIT_SIZE {
+                                hit = HTRIGHT;
+                            }
+                        }
                     }
                 }
-                if hit != HTTOP {
-                    let mouseDown = GetAsyncKeyState(VK_LBUTTON) < 0;
-
-                    if self.with_window_state(|state| state.handle_titlebar.get()) && !mouseDown {
-                        self.with_window_state(move |state| state.handle_titlebar.set(false));
-                    };
-
-                    if self.with_window_state(|state| state.handle_titlebar.get())
-                        && hit == HTCLIENT
-                    {
-                        hit = HTCAPTION;
-                    }
+                let mouseDown = GetAsyncKeyState(VK_LBUTTON) < 0;
+                if self.with_window_state(|state| state.handle_titlebar.get()) && !mouseDown {
+                    self.with_window_state(move |state| state.handle_titlebar.set(false));
+                };
+                if self.with_window_state(|state| state.handle_titlebar.get()) && hit == HTCLIENT {
+                    hit = HTCAPTION;
                 }
                 Some(hit)
             },
@@ -772,14 +862,20 @@ impl WndProc for MyWndProc {
                         );
                     }
                     if SUCCEEDED(res) {
-                        s.rebuild_render_target(&self.d2d_factory, scale);
+                        if let Err(e) = s.rebuild_render_target(&self.d2d_factory, scale) {
+                            log::error!("error building render target: {}", e);
+                        }
                         s.render(
                             &self.d2d_factory,
                             &self.dwrite_factory,
                             &size_dp.to_rect().into(),
                         );
+                        let present_after = match self.present_strategy {
+                            PresentStrategy::Sequential => 1,
+                            _ => 0,
+                        };
                         if let Some(ref mut dxgi_state) = s.dxgi_state {
-                            (*dxgi_state.swap_chain).Present(0, 0);
+                            (*dxgi_state.swap_chain).Present(present_after, 0);
                         }
                         ValidateRect(hwnd, null_mut());
                     } else {
@@ -935,7 +1031,6 @@ impl WndProc for MyWndProc {
             WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDBLCLK
             | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP
             | WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
-                let mut should_release_capture = false;
                 if let Some(button) = match msg {
                     WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP => Some(MouseButton::Left),
                     WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP => Some(MouseButton::Right),
@@ -974,8 +1069,8 @@ impl WndProc for MyWndProc {
                         let count = if down {
                             // TODO: it may be more precise to use the timestamp from the event.
                             let this_click = Instant::now();
-                            let thresh_x = unsafe { GetSystemMetrics(SM_CXDOUBLECLK) };
-                            let thresh_y = unsafe { GetSystemMetrics(SM_CYDOUBLECLK) };
+                            let thresh_x = self.get_system_metric(SM_CXDOUBLECLK);
+                            let thresh_y = self.get_system_metric(SM_CYDOUBLECLK);
                             let in_box = (x - s.last_click_pos.0).abs() <= thresh_x / 2
                                 && (y - s.last_click_pos.1).abs() <= thresh_y / 2;
                             let threshold = Duration::from_millis(dct as u64);
@@ -1003,23 +1098,11 @@ impl WndProc for MyWndProc {
                             s.handler.mouse_down(&event);
                         } else {
                             s.handler.mouse_up(&event);
-                            should_release_capture = s.exit_mouse_capture(button);
+                            if s.exit_mouse_capture(button) {
+                                self.handle.borrow().defer(DeferredOp::ReleaseMouseCapture);
+                            }
                         }
                     });
-                }
-
-                // ReleaseCapture() is deferred: it needs to be called without having a mutable
-                // reference to the window state, because it will generate a reentrant
-                // WM_CAPTURECHANGED event.
-                if should_release_capture {
-                    unsafe {
-                        if ReleaseCapture() == FALSE {
-                            warn!(
-                                "failed to release mouse capture: {}",
-                                Error::Hr(HRESULT_FROM_WIN32(GetLastError()))
-                            );
-                        }
-                    }
                 }
 
                 Some(0)
@@ -1667,22 +1750,7 @@ impl WindowHandle {
     }
 
     pub fn show_context_menu(&self, menu: Menu, pos: Point) {
-        let hmenu = menu.into_hmenu();
-        if let Some(w) = self.state.upgrade() {
-            let hwnd = w.hwnd.get();
-            let pos = pos.to_px(w.scale.get()).round();
-            unsafe {
-                let mut point = POINT {
-                    x: pos.x as i32,
-                    y: pos.y as i32,
-                };
-                ClientToScreen(hwnd, &mut point);
-                if TrackPopupMenu(hmenu, TPM_LEFTALIGN, point.x, point.y, 0, hwnd, null()) == FALSE
-                {
-                    warn!("failed to track popup menu");
-                }
-            }
-        }
+        self.defer(DeferredOp::ContextMenu(menu, pos));
     }
 
     pub fn text(&self) -> PietText {

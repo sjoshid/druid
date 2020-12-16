@@ -18,12 +18,13 @@ use std::time::Duration;
 
 use crate::kurbo::Vec2;
 use crate::text::{
-    BasicTextInput, EditAction, EditableText, Editor, TextInput, TextLayout, TextStorage,
+    BasicTextInput, EditAction, EditableText, Editor, LayoutMetrics, TextInput, TextLayout,
+    TextStorage,
 };
 use crate::widget::prelude::*;
 use crate::{
     theme, Affine, Color, Cursor, FontDescriptor, HotKey, KbKey, KeyOrValue, Point, Selector,
-    SysMods, TimerToken,
+    SysMods, TextAlignment, TimerToken,
 };
 
 const MAC_OR_LINUX: bool = cfg!(any(target_os = "macos", target_os = "linux"));
@@ -42,6 +43,9 @@ pub struct TextBox<T> {
     cursor_timer: TimerToken,
     cursor_on: bool,
     multiline: bool,
+    alignment: TextAlignment,
+    alignment_offset: f64,
+    text_pos: Point,
     /// true if a click event caused us to gain focus.
     ///
     /// On macOS, if focus happens via click then we set the selection based
@@ -70,6 +74,9 @@ impl<T> TextBox<T> {
             cursor_on: false,
             placeholder,
             multiline: false,
+            alignment: TextAlignment::Start,
+            alignment_offset: 0.0,
+            text_pos: Point::ZERO,
             was_focused_from_click: false,
         }
     }
@@ -98,6 +105,29 @@ impl<T> TextBox<T> {
         self
     }
 
+    /// Builder-style method to set the [`TextAlignment`].
+    ///
+    /// This is only relevant when the `TextBox` is *not* [`multiline`],
+    /// in which case it determines how the text is positioned inside the
+    /// `TextBox` when it does not fill the available space.
+    ///
+    /// # Note:
+    ///
+    /// This does not behave exactly like [`TextAlignment`] does when used
+    /// with label; in particular this does not account for reading direction.
+    /// This means that `TextAlignment::Start` (the default) always means
+    /// *left aligned*, and `TextAlignment::End` always means *right aligned*.
+    ///
+    /// This should be considered a bug, but it will not be fixed until proper
+    /// BiDi support is implemented.
+    ///
+    /// [`TextAlignment`]: enum.TextAlignment.html
+    /// [`multiline`]: #method.multiline
+    pub fn with_text_alignment(mut self, alignment: TextAlignment) -> Self {
+        self.set_text_alignment(alignment);
+        self
+    }
+
     /// Builder-style method for setting the font.
     ///
     /// The argument can be a [`FontDescriptor`] or a [`Key<FontDescriptor>`]
@@ -119,6 +149,11 @@ impl<T> TextBox<T> {
     pub fn with_text_color(mut self, color: impl Into<KeyOrValue<Color>>) -> Self {
         self.set_text_color(color);
         self
+    }
+
+    /// Set the `TextBox`'s placeholder text.
+    pub fn set_placeholder(&mut self, placeholder: impl Into<String>) {
+        self.placeholder.set_text(placeholder.into());
     }
 
     /// Set the text size.
@@ -146,6 +181,28 @@ impl<T> TextBox<T> {
         self.placeholder.set_font(font);
     }
 
+    /// Set the [`TextAlignment`] for this `TextBox``.
+    ///
+    /// This is only relevant when the `TextBox` is *not* [`multiline`],
+    /// in which case it determines how the text is positioned inside the
+    /// `TextBox` when it does not fill the available space.
+    ///
+    /// # Note:
+    ///
+    /// This does not behave exactly like [`TextAlignment`] does when used
+    /// with label; in particular this does not account for reading direction.
+    /// This means that `TextAlignment::Start` (the default) always means
+    /// *left aligned*, and `TextAlignment::End` always means *right aligned*.
+    ///
+    /// This should be considered a bug, but it will not be fixed until proper
+    /// BiDi support is implemented.
+    ///
+    /// [`TextAlignment`]: enum.TextAlignment.html
+    /// [`multiline`]: #method.multiline
+    pub fn set_text_alignment(&mut self, alignment: TextAlignment) {
+        self.alignment = alignment;
+    }
+
     /// Set the text color.
     ///
     /// The argument can be either a `Color` or a [`Key<Color>`].
@@ -166,15 +223,30 @@ impl<T> TextBox<T> {
     pub fn editor(&self) -> &Editor<T> {
         &self.editor
     }
+
+    /// The point, relative to the origin, where this text box draws its
+    /// [`TextLayout`].
+    ///
+    /// This is exposed in case the user wants to do additional drawing based
+    /// on properties of the text.
+    ///
+    /// This is not valid until `layout` has been called.
+    pub fn text_position(&self) -> Point {
+        self.text_pos
+    }
 }
 
 impl<T: TextStorage + EditableText> TextBox<T> {
     /// Calculate a stateful scroll offset
     fn update_hscroll(&mut self, self_width: f64, env: &Env) {
         let cursor_x = self.editor.cursor_line().p0.x;
-        let overall_text_width = self.editor.layout().size().width;
+        // if the text ends in trailing whitespace, that space is not included
+        // in its reported width, but we need to include it for these calculations.
+        // see https://github.com/linebender/druid/issues/1430
+        let overall_text_width = self.editor.layout().size().width.max(cursor_x);
         let text_insets = env.get(theme::TEXTBOX_INSETS);
 
+        //// when advancing the cursor, we want some additional padding
         if overall_text_width < self_width - text_insets.x_value() {
             // There's no offset if text is smaller than text box
             //
@@ -193,7 +265,7 @@ impl<T: TextStorage + EditableText> TextBox<T> {
             // **[I****]****
             //   ^
             self.hscroll_offset = cursor_x;
-        } else {
+        } else if self.hscroll_offset > overall_text_width - self_width + text_insets.x_value() {
             // If the text is getting shorter, keep as small offset as possible
             //        <-
             // **[****I]
@@ -217,18 +289,30 @@ impl<T: TextStorage + EditableText> TextBox<T> {
     fn should_draw_cursor(&self) -> bool {
         self.cursor_on
     }
+
+    fn update_alignment_adjustment(&mut self, available_width: f64, metrics: &LayoutMetrics) {
+        self.alignment_offset = if self.multiline {
+            0.0
+        } else {
+            let extra_space = (available_width - metrics.size.width).max(0.0);
+            match self.alignment {
+                TextAlignment::Start | TextAlignment::Justified => 0.0,
+                TextAlignment::End => extra_space,
+                TextAlignment::Center => extra_space / 2.0,
+            }
+        }
+    }
 }
 
 impl<T: TextStorage + EditableText> Widget<T> for TextBox<T> {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, _env: &Env) {
         self.suppress_adjust_hscroll = false;
         match event {
             Event::MouseDown(mouse) => {
                 ctx.request_focus();
                 ctx.set_active(true);
                 let mut mouse = mouse.clone();
-                let text_insets = env.get(theme::TEXTBOX_INSETS);
-                mouse.pos += Vec2::new(self.hscroll_offset - text_insets.x0, 0.0);
+                mouse.pos += Vec2::new(self.hscroll_offset - self.alignment_offset, 0.0);
 
                 if !mouse.focus {
                     self.was_focused_from_click = true;
@@ -240,8 +324,7 @@ impl<T: TextStorage + EditableText> Widget<T> for TextBox<T> {
             }
             Event::MouseMove(mouse) => {
                 let mut mouse = mouse.clone();
-                let text_insets = env.get(theme::TEXTBOX_INSETS);
-                mouse.pos += Vec2::new(self.hscroll_offset - text_insets.x0, 0.0);
+                mouse.pos += Vec2::new(self.hscroll_offset - self.alignment_offset, 0.0);
                 ctx.set_cursor(&Cursor::IBeam);
                 if ctx.is_active() {
                     self.editor.drag(&mouse, data);
@@ -330,7 +413,7 @@ impl<T: TextStorage + EditableText> Widget<T> for TextBox<T> {
         }
     }
 
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &T, env: &Env) -> Size {
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) -> Size {
         let width = env.get(theme::WIDE_WIDGET_WIDTH);
         let text_insets = env.get(theme::TEXTBOX_INSETS);
 
@@ -341,10 +424,18 @@ impl<T: TextStorage + EditableText> Widget<T> for TextBox<T> {
         }
         self.editor.rebuild_if_needed(ctx.text(), env);
 
-        let text_metrics = self.editor.layout().layout_metrics();
-        let height = text_metrics.size.height + text_insets.y_value();
+        let text_metrics = if data.is_empty() {
+            self.placeholder.layout_metrics()
+        } else {
+            self.editor.layout().layout_metrics()
+        };
 
+        let height = text_metrics.size.height + text_insets.y_value();
         let size = bc.constrain((width, height));
+        // if we have a non-left text-alignment, we need to manually adjust our position.
+        self.update_alignment_adjustment(size.width - text_insets.x_value(), &text_metrics);
+        self.text_pos = Point::new(text_insets.x0 + self.alignment_offset, text_insets.y0);
+
         let bottom_padding = (size.height - text_metrics.size.height) / 2.0;
         let baseline_off =
             bottom_padding + (text_metrics.size.height - text_metrics.first_baseline);
@@ -384,8 +475,7 @@ impl<T: TextStorage + EditableText> Widget<T> for TextBox<T> {
             // Shift everything inside the clip by the hscroll_offset
             rc.transform(Affine::translate((-self.hscroll_offset, 0.)));
 
-            let text_pos = Point::new(text_insets.x0, text_insets.y0);
-
+            let text_pos = self.text_position();
             // Draw selection rect
             if !data.is_empty() {
                 if is_focused {
@@ -402,14 +492,26 @@ impl<T: TextStorage + EditableText> Widget<T> for TextBox<T> {
 
             // Paint the cursor if focused and there's no selection
             if is_focused && self.should_draw_cursor() {
-                // the cursor position can extend past the edge of the layout
-                // (commonly when there is trailing whitespace) so we clamp it
-                // to the right edge.
-                let mut cursor = self.editor.cursor_line() + text_pos.to_vec2();
-                let dx = size.width + self.hscroll_offset - text_insets.x1 - cursor.p0.x;
-                if dx < 0.0 {
-                    cursor = cursor + Vec2::new(dx, 0.);
-                }
+                // if there's no data, we always draw the cursor based on
+                // our alignment.
+                let cursor = if data.is_empty() {
+                    let dx = match self.alignment {
+                        TextAlignment::Start | TextAlignment::Justified => text_insets.x0,
+                        TextAlignment::Center => size.width / 2.0,
+                        TextAlignment::End => size.width - text_insets.x1,
+                    };
+                    self.editor.cursor_line() + Vec2::new(dx, text_insets.y0)
+                } else {
+                    // the cursor position can extend past the edge of the layout
+                    // (commonly when there is trailing whitespace) so we clamp it
+                    // to the right edge.
+                    let mut cursor = self.editor.cursor_line() + text_pos.to_vec2();
+                    let dx = size.width + self.hscroll_offset - text_insets.x0 - cursor.p0.x;
+                    if dx < 0.0 {
+                        cursor = cursor + Vec2::new(dx, 0.);
+                    }
+                    cursor
+                };
                 rc.stroke(cursor, &cursor_color, 1.);
             }
         });

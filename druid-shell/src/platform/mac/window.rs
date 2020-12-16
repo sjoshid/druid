@@ -146,7 +146,7 @@ struct ViewState {
     text: PietText,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 // TODO: support custom cursors
 pub struct CustomCursor;
 
@@ -330,6 +330,10 @@ lazy_static! {
         decl.add_method(
             sel!(windowDidBecomeKey:),
             window_did_become_key as extern "C" fn(&mut Object, Sel, id),
+        );
+        decl.add_method(
+            sel!(windowDidResignKey:),
+            window_did_resign_key as extern "C" fn(&mut Object, Sel, id),
         );
         decl.add_method(
             sel!(setFrameSize:),
@@ -812,6 +816,14 @@ extern "C" fn window_did_become_key(this: &mut Object, _: Sel, _notification: id
         let view_state: *mut c_void = *this.get_ivar("viewState");
         let view_state = &mut *(view_state as *mut ViewState);
         (*view_state).handler.got_focus();
+    }
+}
+
+extern "C" fn window_did_resign_key(this: &mut Object, _: Sel, _notification: id) {
+    unsafe {
+        let view_state: *mut c_void = *this.get_ivar("viewState");
+        let view_state = &mut *(view_state as *mut ViewState);
+        (*view_state).handler.lost_focus();
     }
 }
 
