@@ -1,6 +1,7 @@
 use druid::{Data, Lens};
 use crate::Size;
 use chrono::Weekday;
+use im::Vector;
 
 pub const DEFAULT_DAY_WIDGET_SIZE: Size = Size::new(25.0, 25.0);
 pub const DEFAULT_GRID_SPACING: f64 = 5.0;
@@ -29,7 +30,7 @@ pub struct CurrentTimeData {
 }
 
 // do I need this?
-#[derive(Clone, Data)]
+#[derive(Clone, Data, Lens)]
 pub struct CalendarData {
     /// 1..28/29/30/31
     pub current_day_of_month: u32,
@@ -40,4 +41,12 @@ pub struct CalendarData {
     // this will be used to show all days in current month.
     /// 2020, 2021, etc.
     pub current_year: i32,
+    //pub current_mont_data: CurrentMonthData,
+    pub all_dates: Vector<u32>,
+}
+
+pub struct CurrentMonthData {
+    pub days_of_month: Vector<u32>,
+    pub index_of_first_day: u32,
+    pub index_of_last_day: u32,
 }
