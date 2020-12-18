@@ -15,8 +15,8 @@ pub struct Calendar {
 impl Calendar {
     pub fn new() -> Calendar {
         Calendar {
-            days_widget: Calendar::get_days_of_week(),
-            dates_of_month_widget: Calendar::get_dates_of_month_widgets(),
+            days_widget: Vec::with_capacity(7),
+            dates_of_month_widget: Vec::with_capacity(35),
         }
     }
 
@@ -33,10 +33,10 @@ impl Calendar {
         days_widgets
     }
 
-    fn get_dates_of_month_widgets() -> Vec<WidgetPod<CalendarData, Container<CalendarData>>> {
-        let mut date_of_month = Vec::with_capacity(35);
+    fn get_dates_of_month_widgets(number_of_dates_to_show: usize) -> Vec<WidgetPod<CalendarData, Container<CalendarData>>> {
+        let mut date_of_month = Vec::with_capacity(number_of_dates_to_show);
 
-        for current_date in 0..35 {
+        for current_date in 0..number_of_dates_to_show {
             let dynamic_date = Label::dynamic(|date_of_month: &u32, _| {
                 date_of_month.to_string()
             }).lens(CalendarData::all_dates.index(current_date));
@@ -62,42 +62,29 @@ impl Calendar {
 
 impl Widget<CalendarData> for Calendar {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut CalendarData, env: &Env) {
-        //println!("event");
-        // day_widgets will never be updated. so ignore calling event on them
-        /*for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
-            day_widget.event(ctx, event, &mut String::from(*day), env);
-        }*/
+
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &CalendarData, env: &Env) {
         match event {
             LifeCycle::WidgetAdded => {
+                self.days_widget = Calendar::get_days_of_week();
                 for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
                     day_widget.lifecycle(ctx, event, &String::from(*day), env);
                 }
 
-                println!("{:?}", data.all_dates);
+                let dates_size = data.all_dates.len();
+                self.dates_of_month_widget = Calendar::get_dates_of_month_widgets(dates_size);
                 for dynamic_date in self.dates_of_month_widget.iter_mut() {
                     dynamic_date.lifecycle(ctx, event, &data, env);
                 }
-
-                /*let mut dates_of_month_widget = Calendar::get_dates_of_month(data.current_year, data.current_month_of_year);
-                for (i, mut date_widget) in dates_of_month_widget.drain(0..dates_of_month_widget.len()).enumerate() {
-                    let date = i + 1;
-                    date_widget.lifecycle(ctx, event, &date.to_string(), env);
-                    self.dates_of_month_widget.push(date_widget);
-                }*/
             }
             _ => {}
         }
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &CalendarData, data: &CalendarData, env: &Env) {
-        //println!("update");
-        // day_widgets will never be updated.
-        /*for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
-            day_widget.update(ctx, &String::from(*day), env);
-        }*/
+
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &CalendarData, env: &Env) -> Size {
@@ -116,13 +103,6 @@ impl Widget<CalendarData> for Calendar {
             x_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
         }
 
-        /*let first_date_of_current_month = NaiveDate::from_ymd(data.current_year, data.current_month_of_year, 1);
-        let mut day_from_sunday = first_date_of_current_month.weekday().num_days_from_sunday();
-        y_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
-        x_position = DEFAULT_GRID_SPACING + (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING) * day_from_sunday as f64;*/
-
-        let mut date: i32 = 1;
-
         for (i, date_widget) in self.dates_of_month_widget.iter_mut().enumerate() {
             if i % 7 == 0 {
                 y_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
@@ -137,8 +117,6 @@ impl Widget<CalendarData> for Calendar {
             date_widget.layout(ctx, &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE), &data, env);
             date_widget.set_layout_rect(ctx, &data, env, rect);
             x_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
-            /*day_from_sunday = day_from_sunday.checked_add(1).unwrap();
-            date = date.checked_add(1).unwrap();*/
         }
 
         Size {
@@ -148,7 +126,6 @@ impl Widget<CalendarData> for Calendar {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &CalendarData, env: &Env) {
-        //println!("paint");
         for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
             day_widget.paint(ctx, &String::from(*day), env);
         }

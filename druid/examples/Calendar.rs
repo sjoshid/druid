@@ -3,7 +3,7 @@ use std::ops::{Add, Sub};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use chrono::{Datelike, DateTime, Local, NaiveDate, Timelike};
+use chrono::{Datelike, DateTime, Local, NaiveDate, Timelike, NaiveDateTime, NaiveTime};
 
 use druid::{AppLauncher, BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, Lens, LifeCycle, LifeCycleCtx, PaintCtx, Size, theme, UpdateCtx, Widget, WidgetExt, WidgetPod, WindowDesc, DateWidgetData, CalendarData, CurrentTimeData, LensExt, CurrentMonthData};
 use druid::widget::{BackgroundBrush, Container, Flex, Label, Calendar, CurrentTimeWidget, Align};
@@ -30,12 +30,11 @@ fn ui_builder() -> impl Widget<DateWidgetData> {
     c1.add_spacer(10.);
     c1.add_child(calendar_widget);
 
-    c1.debug_paint_layout()
+    c1//.debug_paint_layout()
 }
 
 fn main() {
     let main_window = WindowDesc::new(ui_builder).title("Calendar");
-    DateTime::from_str("");
     let today = Local::now();
     let first_date_of_current_month = NaiveDate::from_ymd(today.year(), today.month(), 1);
     let days_in_previous_month = get_last_n_days_of_previous_month(first_date_of_current_month.year(), first_date_of_current_month.month(), first_date_of_current_month.weekday().number_from_sunday());
