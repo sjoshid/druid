@@ -1,4 +1,4 @@
-use crate::{WidgetPod, Size, LifeCycleCtx, EventCtx, Widget, Event, Env, LifeCycle, UpdateCtx, BoxConstraints, LayoutCtx, Rect, PaintCtx, CalendarData, LensExt, WidgetExt};
+use crate::{WidgetPod, Size, LifeCycleCtx, EventCtx, Widget, Event, Env, LifeCycle, UpdateCtx, BoxConstraints, LayoutCtx, Rect, PaintCtx, CalendarData, LensExt, WidgetExt, theme};
 use crate::widget::{Container, Label, BackgroundBrush};
 use druid_shell::piet::Color;
 use chrono::{NaiveDate, Datelike};
@@ -41,7 +41,6 @@ impl Calendar {
                 date_of_month.to_string()
             }).lens(CalendarData::all_dates.index(current_date));
             let date_widget = Container::new(dynamic_date);
-            let date_widget = date_widget.border(Color::WHITE, 1.0);
             let date_widget = WidgetPod::new(date_widget);
 
             date_of_month.push(date_widget);
