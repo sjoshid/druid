@@ -172,12 +172,11 @@ pub mod theme;
 pub mod widget;
 mod win_handler;
 mod window;
+#[cfg(feature = "im")]
 mod calendar_data;
 
-pub use calendar_data::DateWidgetData;
-pub use calendar_data::CurrentTimeData;
-pub use calendar_data::CalendarData;
-pub use calendar_data::CurrentMonthData;
+#[cfg(feature = "im")]
+pub use calendar_data::*;
 
 // Types from kurbo & piet that are required by public API.
 pub use kurbo::{Affine, Insets, Point, Rect, Size, Vec2};
