@@ -9,7 +9,7 @@ pub struct Calendar {
     days_widget: Vec<WidgetPod<String, Container<String>>>,
     //su, mo, tu, etc.
     // date of month cannot be a const. it changes per month
-    dates_of_month_widget: Vec<WidgetPod<CalendarData, Container<CalendarData>>>, // this will be used to highlight.
+    dates_of_month_widget: Vec<Container<CalendarData>>, // this will be used to highlight.
 }
 
 impl Calendar {
@@ -24,7 +24,7 @@ impl Calendar {
         let mut days_widgets = Vec::with_capacity(7);
 
         for (i, day) in DAYS_OF_WEEK.iter().enumerate() {
-            let day = Container::new(Label::new(String::from(*day)));
+            let day = Label::new(String::from(*day));
             let day = day.background(BackgroundBrush::Color(Color::rgb8(i as u8, i as u8, 55)));
             let day = day.border(Color::WHITE, 1.0);
             days_widgets.push(WidgetPod::new(day));
@@ -33,17 +33,17 @@ impl Calendar {
         days_widgets
     }
 
-    fn get_dates_of_month_widgets(number_of_dates_to_show: usize) -> Vec<WidgetPod<CalendarData, Container<CalendarData>>> {
+    fn get_dates_of_month_widgets(number_of_dates_to_show: usize) -> Vec<Container<CalendarData>> {
         let mut date_of_month = Vec::with_capacity(number_of_dates_to_show);
 
         for current_date in 0..number_of_dates_to_show {
             let dynamic_date = Label::dynamic(|date_of_month: &u32, _| {
                 date_of_month.to_string()
-            }).lens(CalendarData::all_dates.index(current_date));
-            let date_widget = Container::new(dynamic_date);
-            let date_widget = WidgetPod::new(date_widget);
+            }).padding(5.).lens(CalendarData::all_dates.index(current_date));
+            //maybe use label border and its container border?
+            let inner_date_widget = dynamic_date.border(Color::rgb(0., 100., 0.), 1.);
 
-            date_of_month.push(date_widget);
+            date_of_month.push(inner_date_widget);
         }
 
         date_of_month
@@ -113,8 +113,8 @@ impl Widget<CalendarData> for Calendar {
                 x_position + DEFAULT_DAY_WIDGET_SIZE.width,
                 y_position + DEFAULT_DAY_WIDGET_SIZE.height,
             );
-            date_widget.layout(ctx, &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE), &data, env);
-            date_widget.set_layout_rect(ctx, &data, env, rect);
+            date_widget.inner.layout(ctx, &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE), &data, env);
+            date_widget.inner.set_layout_rect(ctx, &data, env, rect);
             x_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
         }
 
