@@ -1,11 +1,14 @@
-use druid::{TimerToken, WidgetPod, Widget, EventCtx, LifeCycle, PaintCtx, BoxConstraints, LifeCycleCtx, Size, LayoutCtx, Event, Env, UpdateCtx, KeyOrValue, FontDescriptor, Color, CurrentTimeData};
+use crate::calendar_data::{DAYS_OF_WEEK, DEFAULT_DAY_WIDGET_SIZE, DEFAULT_GRID_SPACING};
+use crate::{FontFamily, Rect};
+use chrono::{Local, Timelike};
 use druid::widget::{Container, Label};
+use druid::{
+    BoxConstraints, Color, CurrentTimeData, Env, Event, EventCtx, FontDescriptor, KeyOrValue,
+    LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx, Size, TimerToken, UpdateCtx, Widget, WidgetPod,
+};
 use std::ops::Add;
-use crate::calendar_data::{DEFAULT_DAY_WIDGET_SIZE, DEFAULT_GRID_SPACING, DAYS_OF_WEEK};
-use crate::{Rect, FontFamily};
 use std::sync::Arc;
 use std::time::Duration;
-use chrono::{Local, Timelike};
 
 pub struct CurrentTimeWidget {
     time_label: WidgetPod<CurrentTimeData, Container<CurrentTimeData>>,
@@ -15,10 +18,16 @@ pub struct CurrentTimeWidget {
 
 impl CurrentTimeWidget {
     pub fn new() -> Self {
-        let hour = Container::new(Label::dynamic(CurrentTimeWidget::create_time_label()).with_font(FontDescriptor::new(FontFamily::SERIF).with_size(34.0)));
+        let hour = Container::new(
+            Label::dynamic(CurrentTimeWidget::create_time_label())
+                .with_font(FontDescriptor::new(FontFamily::SERIF).with_size(34.0)),
+        );
         let hour_label = WidgetPod::new(hour);
 
-        let am_pm = Container::new(Label::dynamic(CurrentTimeWidget::am_pm_label()).with_font(FontDescriptor::new(FontFamily::SERIF).with_size(8.0)));
+        let am_pm = Container::new(
+            Label::dynamic(CurrentTimeWidget::am_pm_label())
+                .with_font(FontDescriptor::new(FontFamily::SERIF).with_size(8.0)),
+        );
         let am_pm_label = WidgetPod::new(am_pm);
 
         CurrentTimeWidget {
@@ -35,9 +44,15 @@ impl CurrentTimeWidget {
                 if hour == 0 {
                     hour = 12;
                 }
-                format!("{:0>2}:{:0>2}:{:0>2}", hour, c.current_minute_of_hour, c.current_second_of_minute)
+                format!(
+                    "{:0>2}:{:0>2}:{:0>2}",
+                    hour, c.current_minute_of_hour, c.current_second_of_minute
+                )
             } else {
-                format!("{:0>2}:{:0>2}:{:0>2}", c.current_hour_of_day, c.current_minute_of_hour, c.current_second_of_minute)
+                format!(
+                    "{:0>2}:{:0>2}:{:0>2}",
+                    c.current_hour_of_day, c.current_minute_of_hour, c.current_second_of_minute
+                )
             }
         }
     }
@@ -80,7 +95,13 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
         }
     }
 
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &CurrentTimeData, env: &Env) {
+    fn lifecycle(
+        &mut self,
+        ctx: &mut LifeCycleCtx,
+        event: &LifeCycle,
+        data: &CurrentTimeData,
+        env: &Env,
+    ) {
         match event {
             LifeCycle::WidgetAdded => {
                 self.time_label.lifecycle(ctx, event, &data, env);
@@ -90,11 +111,23 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
         }
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &CurrentTimeData, data: &CurrentTimeData, env: &Env) {
+    fn update(
+        &mut self,
+        ctx: &mut UpdateCtx,
+        old_data: &CurrentTimeData,
+        data: &CurrentTimeData,
+        env: &Env,
+    ) {
         self.time_label.update(ctx, &data, env);
     }
 
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &CurrentTimeData, env: &Env) -> Size {
+    fn layout(
+        &mut self,
+        ctx: &mut LayoutCtx,
+        bc: &BoxConstraints,
+        data: &CurrentTimeData,
+        env: &Env,
+    ) -> Size {
         let time_label_size = self.time_label.layout(ctx, bc, &data, env);
 
         let mut x_position = DEFAULT_GRID_SPACING;
@@ -118,10 +151,12 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
             x_position + am_pm_label.width,
             y_position + am_pm_label.height,
         );
-        self.am_pm_label.set_layout_rect(ctx, &data, env, am_pm_rect);
+        self.am_pm_label
+            .set_layout_rect(ctx, &data, env, am_pm_rect);
 
         Size {
-            width: (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING) * DAYS_OF_WEEK.len() as f64,
+            width: (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING)
+                * DAYS_OF_WEEK.len() as f64,
             height: time_label_size.height,
         }
     }

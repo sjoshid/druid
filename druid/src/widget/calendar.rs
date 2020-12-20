@@ -1,9 +1,12 @@
-use crate::{WidgetPod, Size, LifeCycleCtx, EventCtx, Widget, Event, Env, LifeCycle, UpdateCtx, BoxConstraints, LayoutCtx, Rect, PaintCtx, CalendarData, LensExt, WidgetExt, theme};
-use crate::widget::{Container, Label, BackgroundBrush};
-use druid_shell::piet::Color;
-use chrono::{NaiveDate, Datelike};
-use std::ops::Add;
 use crate::calendar_data::{DAYS_OF_WEEK, DEFAULT_DAY_WIDGET_SIZE, DEFAULT_GRID_SPACING};
+use crate::widget::{BackgroundBrush, Container, Label, Painter};
+use crate::{
+    theme, BoxConstraints, CalendarData, Env, Event, EventCtx, LayoutCtx, LensExt, LifeCycle,
+    LifeCycleCtx, PaintCtx, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt, WidgetPod,
+};
+use chrono::{Datelike, NaiveDate};
+use druid_shell::piet::Color;
+use std::ops::Add;
 
 pub struct Calendar {
     days_widget: Vec<WidgetPod<String, Container<String>>>,
@@ -24,33 +27,39 @@ impl Calendar {
         let mut days_widgets = Vec::with_capacity(7);
 
         for (i, day) in DAYS_OF_WEEK.iter().enumerate() {
-            let day = Container::new(Label::new(String::from(*day)));
-            let day = day.background(BackgroundBrush::Color(Color::rgb8(i as u8, i as u8, 55)));
-            let day = day.border(Color::WHITE, 1.0);
+            let day = Container::new(Label::new(String::from(*day)).center());
             days_widgets.push(WidgetPod::new(day));
         }
 
         days_widgets
     }
 
-    fn get_dates_of_month_widgets(number_of_dates_to_show: usize) -> Vec<WidgetPod<CalendarData, Container<CalendarData>>> {
-        let mut date_of_month = Vec::with_capacity(number_of_dates_to_show);
+    fn current_date_painter() -> Painter<u32> {
+        let painter = Painter::new(|ctx, _, env| {
+            let bounds = ctx.size().to_rect();
 
-        for current_date in 0..number_of_dates_to_show {
-            let dynamic_date = Label::dynamic(|date_of_month: &u32, _| {
-                date_of_month.to_string()
-            }).border(Color::WHITE, 1.).lens(CalendarData::all_dates.index(current_date));
-            let date_widget = dynamic_date.padding(5.).border(Color::rgb(0., 100., 0.), 1.);
+            ctx.fill(bounds, &env.get(theme::PRIMARY_DARK));
+        });
+        painter
+    }
 
-            //Theoretically I shouldnt have to put date_widget in a WidgetPod.
-            // But without putting it in a WidgetPod, I see a weird border issue.
-            // Revert to commit # 9e5c5f068c0a357ceb1175896db445395956fc77 to see the issue.
-            let date_widget = WidgetPod::new(date_widget);
+    fn outer_date_painter() -> Painter<CalendarData> {
+        let painter = Painter::new(|ctx, _, env| {
+            let bounds = ctx.size().to_rect();
 
-            date_of_month.push(date_widget);
-        }
+            //ctx.fill(bounds, &env.get(theme::PRIMARY_DARK));
 
-        date_of_month
+            if ctx.is_hot() {
+                ctx.stroke(bounds.inset(-0.5), &Color::WHITE, 1.0);
+                println!("outer date hot");
+            }
+
+            if ctx.is_active() {
+                println!("outer date active");
+                ctx.fill(bounds, &env.get(theme::PRIMARY_LIGHT));
+            }
+        });
+        painter
     }
 
     pub fn get_number_of_days_in_a_month(year: i32, month: u32) -> i64 {
@@ -58,15 +67,22 @@ impl Calendar {
             NaiveDate::from_ymd(year + 1, 1, 1)
         } else {
             NaiveDate::from_ymd(year, month + 1, 1)
-        }.signed_duration_since(NaiveDate::from_ymd(year, month, 1))
-            .num_days()
+        }
+        .signed_duration_since(NaiveDate::from_ymd(year, month, 1))
+        .num_days()
     }
 }
 
 impl Widget<CalendarData> for Calendar {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut CalendarData, env: &Env) {}
 
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &CalendarData, env: &Env) {
+    fn lifecycle(
+        &mut self,
+        ctx: &mut LifeCycleCtx,
+        event: &LifeCycle,
+        data: &CalendarData,
+        env: &Env,
+    ) {
         match event {
             LifeCycle::WidgetAdded => {
                 self.days_widget = Calendar::get_days_of_week();
@@ -74,8 +90,36 @@ impl Widget<CalendarData> for Calendar {
                     day_widget.lifecycle(ctx, event, &String::from(*day), env);
                 }
 
-                let dates_size = data.all_dates.len();
-                self.dates_of_month_widget = Calendar::get_dates_of_month_widgets(dates_size);
+                let mut is_current_month = false;
+                for (i, date) in data.all_dates.iter().enumerate() {
+                    if *date == 1 {
+                        is_current_month = true;
+                    }
+
+                    if *date == data.current_day_of_month && is_current_month {
+                        let dynamic_date =
+                            Label::dynamic(|date_of_month: &u32, _| date_of_month.to_string())
+                                .center()
+                                .background(Calendar::current_date_painter())
+                                .lens(CalendarData::all_dates.index(i));
+                        let date_widget = Container::new(dynamic_date.padding(3.))
+                            .background(Calendar::outer_date_painter());
+
+                        let mut date_widget = WidgetPod::new(date_widget);
+                        self.dates_of_month_widget.push(date_widget);
+                    } else {
+                        let dynamic_date =
+                            Label::dynamic(|date_of_month: &u32, _| date_of_month.to_string())
+                                .center()
+                                .lens(CalendarData::all_dates.index(i));
+                        let date_widget = Container::new(dynamic_date.padding(3.))
+                            .background(Calendar::outer_date_painter());
+
+                        let mut date_widget = WidgetPod::new(date_widget);
+                        self.dates_of_month_widget.push(date_widget);
+                    }
+                }
+
                 for dynamic_date in self.dates_of_month_widget.iter_mut() {
                     dynamic_date.lifecycle(ctx, event, &data, env);
                 }
@@ -84,9 +128,22 @@ impl Widget<CalendarData> for Calendar {
         }
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &CalendarData, data: &CalendarData, env: &Env) {}
+    fn update(
+        &mut self,
+        ctx: &mut UpdateCtx,
+        old_data: &CalendarData,
+        data: &CalendarData,
+        env: &Env,
+    ) {
+    }
 
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &CalendarData, env: &Env) -> Size {
+    fn layout(
+        &mut self,
+        ctx: &mut LayoutCtx,
+        bc: &BoxConstraints,
+        data: &CalendarData,
+        env: &Env,
+    ) -> Size {
         let mut x_position = DEFAULT_GRID_SPACING;
         let mut y_position = DEFAULT_GRID_SPACING;
 
@@ -97,7 +154,12 @@ impl Widget<CalendarData> for Calendar {
                 x_position + DEFAULT_DAY_WIDGET_SIZE.width,
                 y_position + DEFAULT_DAY_WIDGET_SIZE.height,
             );
-            day_widget.layout(ctx, &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE), &String::from(*day), env);
+            day_widget.layout(
+                ctx,
+                &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE),
+                &String::from(*day),
+                env,
+            );
             day_widget.set_layout_rect(ctx, &String::from(*day), env, rect);
             x_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
         }
@@ -113,13 +175,19 @@ impl Widget<CalendarData> for Calendar {
                 x_position + DEFAULT_DAY_WIDGET_SIZE.width,
                 y_position + DEFAULT_DAY_WIDGET_SIZE.height,
             );
-            date_widget.layout(ctx, &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE), &data, env);
+            date_widget.layout(
+                ctx,
+                &BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE),
+                &data,
+                env,
+            );
             date_widget.set_layout_rect(ctx, &data, env, rect);
             x_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
         }
 
         Size {
-            width: (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING) * DAYS_OF_WEEK.len() as f64,
+            width: (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING)
+                * DAYS_OF_WEEK.len() as f64,
             height: (DEFAULT_DAY_WIDGET_SIZE.height + DEFAULT_GRID_SPACING) * 6.,
         }
     }
