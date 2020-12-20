@@ -3,7 +3,7 @@ use crate::Size;
 use chrono::Weekday;
 use im::Vector;
 
-pub const DEFAULT_DAY_WIDGET_SIZE: Size = Size::new(25.0, 25.0);
+pub const DEFAULT_DAY_WIDGET_SIZE: Size = Size::new(35.0, 35.0);
 pub const DEFAULT_GRID_SPACING: f64 = 5.0;
 
 pub const DAYS_OF_WEEK: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
