@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 
 use chrono::format::Numeric::Day;
-use druid::widget::{Align, BackgroundBrush, Calendar, Container, CurrentTimeWidget, Flex, Label};
+use druid::widget::{Align, BackgroundBrush, CalendarDateWidget, Container, CurrentTimeWidget, Flex, Label, Checkbox};
 use druid::{
     theme, AppLauncher, BoxConstraints, CalendarData, CurrentMonthData, CurrentTimeData, Data,
     DateWidgetData, Env, Event, EventCtx, LayoutCtx, Lens, LensExt, LifeCycle, LifeCycleCtx,
@@ -33,18 +33,24 @@ fn ui_builder() -> impl Widget<DateWidgetData> {
         //format!("{}", d.format("%A, %-d %B, %C%y"))
         d.format("%A, %-d %B, %C%y").to_string()
     })
-    .lens(DateWidgetData::day_and_month)
-    .align_left();
-    let calendar_widget = Calendar::new()
+        .lens(DateWidgetData::day_and_month)
+        .align_left();
+    let time_format = Checkbox::new("12 hr format")
+        .lens(DateWidgetData::current_time.then(CurrentTimeData::twelve_hour_format));
+
+    let calendar_widget = CalendarDateWidget::new()
         .lens(DateWidgetData::day_and_month)
         .align_left();
 
-    c1.add_child(current_time_widget);
+    let mut time_flex = Flex::row()
+        .with_child(current_time_widget).with_child(time_format)
+        .align_left();
+    c1.add_child(time_flex);
     c1.add_child(current_day_label);
     c1.add_spacer(10.);
     c1.add_child(calendar_widget);
 
-    c1 //.debug_paint_layout()
+    c1//.debug_paint_layout()
 }
 
 fn main() {
@@ -56,7 +62,7 @@ fn main() {
         first_date_of_current_month.month(),
         first_date_of_current_month.weekday().number_from_sunday(),
     );
-    let days_in_current_month: Vector<u32> = (1..=Calendar::get_number_of_days_in_a_month(
+    let days_in_current_month: Vector<u32> = (1..=CalendarDateWidget::get_number_of_days_in_a_month(
         first_date_of_current_month.year(),
         first_date_of_current_month.month(),
     ) as u32)

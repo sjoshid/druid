@@ -56,12 +56,12 @@ mod widget_ext;
 #[cfg(feature = "im")]
 mod current_time_widget;
 #[cfg(feature = "im")]
-mod calendar;
+mod calendar_widget;
 
 #[cfg(feature = "im")]
 pub use current_time_widget::CurrentTimeWidget;
 #[cfg(feature = "im")]
-pub use calendar::Calendar;
+pub use calendar_widget::CalendarDateWidget;
 
 pub use self::image::Image;
 pub use align::Align;

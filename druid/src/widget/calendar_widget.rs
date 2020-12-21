@@ -8,16 +8,16 @@ use chrono::{Datelike, NaiveDate};
 use druid_shell::piet::Color;
 use std::ops::Add;
 
-pub struct Calendar {
+pub struct CalendarDateWidget {
     days_widget: Vec<WidgetPod<String, Container<String>>>,
     //su, mo, tu, etc.
     // date of month cannot be a const. it changes per month
     dates_of_month_widget: Vec<WidgetPod<CalendarData, Container<CalendarData>>>, // this will be used to highlight.
 }
 
-impl Calendar {
-    pub fn new() -> Calendar {
-        Calendar {
+impl CalendarDateWidget {
+    pub fn new() -> CalendarDateWidget {
+        CalendarDateWidget {
             days_widget: Vec::with_capacity(7),
             dates_of_month_widget: Vec::with_capacity(35),
         }
@@ -73,7 +73,7 @@ impl Calendar {
     }
 }
 
-impl Widget<CalendarData> for Calendar {
+impl Widget<CalendarData> for CalendarDateWidget {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut CalendarData, env: &Env) {}
 
     fn lifecycle(
@@ -85,7 +85,7 @@ impl Widget<CalendarData> for Calendar {
     ) {
         match event {
             LifeCycle::WidgetAdded => {
-                self.days_widget = Calendar::get_days_of_week();
+                self.days_widget = CalendarDateWidget::get_days_of_week();
                 for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
                     day_widget.lifecycle(ctx, event, &String::from(*day), env);
                 }
@@ -100,10 +100,10 @@ impl Widget<CalendarData> for Calendar {
                         let dynamic_date =
                             Label::dynamic(|date_of_month: &u32, _| date_of_month.to_string())
                                 .center()
-                                .background(Calendar::current_date_painter())
+                                .background(CalendarDateWidget::current_date_painter())
                                 .lens(CalendarData::all_dates.index(i));
                         let date_widget = Container::new(dynamic_date.padding(3.))
-                            .background(Calendar::outer_date_painter());
+                            .background(CalendarDateWidget::outer_date_painter());
 
                         let mut date_widget = WidgetPod::new(date_widget);
                         self.dates_of_month_widget.push(date_widget);
@@ -113,7 +113,7 @@ impl Widget<CalendarData> for Calendar {
                                 .center()
                                 .lens(CalendarData::all_dates.index(i));
                         let date_widget = Container::new(dynamic_date.padding(3.))
-                            .background(Calendar::outer_date_painter());
+                            .background(CalendarDateWidget::outer_date_painter());
 
                         let mut date_widget = WidgetPod::new(date_widget);
                         self.dates_of_month_widget.push(date_widget);

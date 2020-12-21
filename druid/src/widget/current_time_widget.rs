@@ -119,6 +119,7 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
         env: &Env,
     ) {
         self.time_label.update(ctx, &data, env);
+        self.am_pm_label.update(ctx, &data, env);
     }
 
     fn layout(
