@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! An example of a custom drawing widget.
-//! We draw an image, some text, a shape, and a curve.
-
 use druid::kurbo::BezPath;
 use druid::piet::{FontFamily, ImageFormat, InterpolationMode, Text, TextLayoutBuilder};
 use druid::widget::prelude::*;
-use druid::{Affine, AppLauncher, Color, FontDescriptor, LocalizedString, Point, Rect, TextLayout, WindowDesc, WidgetPod, WidgetExt, MouseButton, Data, Lens};
+use druid::{Affine, AppLauncher, Color, FontDescriptor, LocalizedString, Point, Rect, TextLayout, WindowDesc, WidgetPod, WidgetExt, MouseButton, Data, Lens, theme};
 use druid::widget::{Label, Container, Flex};
 use std::cmp;
 use im::Vector;
 
+/// Wraps a Label in a Container.
+/// I chose Container because it takes a &mut that adds a border. Not sure if this is the right choice.
 struct CustomLabelWrapper {
     label_in_container: Container<String>,
 }
@@ -35,94 +34,96 @@ impl CustomLabelWrapper {
     }
 }
 
-impl Widget<(String, usize, usize)> for CustomLabelWrapper {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut (String, usize, usize), env: &Env) {
+impl Widget<(String, bool)> for CustomLabelWrapper {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut (String, bool), env: &Env) {
         match event {
             Event::MouseDown(mouse_event) => {
-                if mouse_event.button == MouseButton::Left && !self.label_in_container.border_is_some() {
-                    self.label_in_container.set_border(Color::WHITE, 1.);
+                if mouse_event.button == MouseButton::Left {
                     ctx.set_active(true);
-                    ctx.request_paint();
+                    //ctx.request_paint(); //not needed
                 }
             }
             Event::MouseUp(mouse_event) => {
                 if ctx.is_active() && mouse_event.button == MouseButton::Left {
                     ctx.set_active(false);
                     if ctx.is_hot() {
-                        //
+                        // do nothing
                     }
-                    ctx.request_paint();
+                    //ctx.request_paint(); //not needed
                 }
             }
             _ => {}
         }
     }
 
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &(String, usize, usize), env: &Env) {
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &(String, bool), env: &Env) {
         match event {
             LifeCycle::WidgetAdded => {
                 self.label_in_container.lifecycle(ctx, event, &(*data).0, env);
-            }
-            LifeCycle::FocusChanged(is_focused) => {
-                println!("Focused {}", is_focused);
-            }
-            LifeCycle::HotChanged(is_hot) => {
-                //println!("is_hot {}", is_hot);
-                /*if *is_hot {
-                    self.label.set_border(Color::WHITE, 1.);
-                } else {
-                    self.label.set_border(Color::rgb(0., 100., 0.), 1.);
-                }*/
             }
             _ => {}
         }
     }
 
-    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &(String, usize, usize), data: &(String, usize, usize), env: &Env) {
+    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &(String, bool), data: &(String, bool), env: &Env) {
         self.label_in_container.update(ctx, &(*old_data).0, &(*data).0, env);
     }
 
-    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &(String, usize, usize), env: &Env) -> Size {
+    fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &(String, bool), env: &Env) -> Size {
         self.label_in_container.layout(ctx, bc, &(*data).0, env)
     }
 
-    fn paint(&mut self, ctx: &mut PaintCtx, data: &(String, usize, usize), env: &Env) {
-        println!("painting..");
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &(String, bool), env: &Env) {
+        let border = data.1;
+        println!("inner paint ");
         self.label_in_container.paint(ctx, &(*data).0, env);
+        if border {
+            println!("i {:?}", *data);
+            self.label_in_container.set_border(Color::WHITE, 1.);
+        } else {
+            println!("i {:?}", *data);
+            self.label_in_container.set_border(theme::BACKGROUND_LIGHT, 1.);
+        }
     }
 }
 
-struct CustomWidget {
-    label: Vec<WidgetPod<(String, usize, usize), CustomLabelWrapper>>,
+/// A container widget that makes sure only one of the contained widgets has a border.
+/// Clicking a different widget removes the border from old widget and add a border to clicked
+/// widget.
+struct CustomWidgetContainer {
+    label: Vec<WidgetPod<(String, bool), CustomLabelWrapper>>,
 }
 
-impl CustomWidget {
+impl CustomWidgetContainer {
     fn new() -> Self {
-        CustomWidget {
+        CustomWidgetContainer {
             label: vec![],
         }
     }
 }
 
-impl Widget<AppState> for CustomWidget {
-    fn event(&mut self, _ctx: &mut EventCtx, _event: &Event, data: &mut AppState, _env: &Env) {
+impl Widget<AppState> for CustomWidgetContainer {
+    fn event(&mut self, ctx: &mut EventCtx, _event: &Event, data: &mut AppState, _env: &Env) {
         let mut labels = &mut data.labels;
         for (i, l) in self.label.iter_mut().enumerate() {
             let mut active = None;
             let mut inside_label = &mut labels[i];
-            l.event(_ctx, _event, &mut ((*inside_label).clone(), i, i), _env);
+            l.event(ctx, _event, &mut ((*inside_label).clone(), false), _env);
             if l.is_active() {
                 println!("l index {:?}", i);
                 active = Some(i);
             }
             if active.is_some() {
+                // Make current active index, inactive.
                 if data.active_index.is_some() {
                     data.inactive_index = data.active_index;
                 }
+                // Make clicked widget, active.
                 data.active_index = active;
                 println!("active index {:?}", data.active_index);
                 println!("inactive index {:?}", data.inactive_index);
             }
+            ctx.request_paint();
         }
     }
 
@@ -146,7 +147,7 @@ impl Widget<AppState> for CustomWidget {
         let labels = &data.labels;
         for (i, l) in self.label.iter_mut().enumerate() {
             let inside_label = &labels[i];
-            l.lifecycle(_ctx, event, &(inside_label.clone(), i, i), _env);
+            l.lifecycle(_ctx, event, &(inside_label.clone(), false), _env);
         }
     }
 
@@ -154,7 +155,7 @@ impl Widget<AppState> for CustomWidget {
         let labels = &data.labels;
         for (i, l) in self.label.iter_mut().enumerate() {
             let inside_label = &labels[i];
-            l.update(_ctx, &(inside_label.clone(), i, i), _env);
+            l.update(_ctx, &(inside_label.clone(), false), _env);
         }
     }
 
@@ -173,7 +174,7 @@ impl Widget<AppState> for CustomWidget {
 
         for (i, l) in self.label.iter_mut().enumerate() {
             let inside_label = &labels[i];
-            let size = l.layout(layout_ctx, bc, &(inside_label.clone(), i, i), env);
+            let size = l.layout(layout_ctx, bc, &(inside_label.clone(), false), env);
             let rect = Rect::new(
                 x_position,
                 y_position,
@@ -181,7 +182,7 @@ impl Widget<AppState> for CustomWidget {
                 y_position + size.height,
             );
 
-            l.set_layout_rect(layout_ctx, &(inside_label.clone(), i, i), env, rect);
+            l.set_layout_rect(layout_ctx, &(inside_label.clone(), false), env, rect);
             y_position += size.height;
             height += size.height;
             width = width.max(size.width);
@@ -192,14 +193,29 @@ impl Widget<AppState> for CustomWidget {
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &AppState, env: &Env) {
         let labels = &data.labels;
+        println!("outer paint ");
         for (i, l) in self.label.iter_mut().enumerate() {
             let inside_label = &labels[i];
-            l.paint(ctx, &(inside_label.clone(), i, i), env);
+            if data.active_index.is_some() && i == data.active_index.unwrap() {
+                //pass true to paint
+                println!("o {:?}", (inside_label.clone(), true));
+                l.paint(ctx, &(inside_label.clone(), true), env);
+            } else {
+                if data.inactive_index.is_some() && i == data.inactive_index.unwrap() {
+                    //pass false to paint
+                    println!("o {:?}", (inside_label.clone(), false));
+                    l.paint(ctx, &(inside_label.clone(), false), env);
+                } else {
+                    //for anything else pass false
+                    println!("o {:?}", (inside_label.clone(), false));
+                    l.paint(ctx, &(inside_label.clone(), false), env);
+                }
+            }
         }
     }
 }
 
-#[derive(Clone, Data, Lens)]
+#[derive(Clone, Data, Lens, Debug)]
 pub struct AppState {
     active_index: Option<usize>,
     inactive_index: Option<usize>,
@@ -209,8 +225,9 @@ pub struct AppState {
 pub fn main() {
     let main_window = WindowDesc::new(ui_builder).title("Testing something..");
     let mut labels = Vector::new();
-    labels.push_back(String::from("Sujit"));
-    labels.push_back(String::from("Joshi"));
+    labels.push_back(String::from("First"));
+    labels.push_back(String::from("Middle"));
+    labels.push_back(String::from("Last"));
     let active_index = None;
     let inactive_index = None;
 
@@ -229,7 +246,7 @@ pub fn main() {
 fn ui_builder() -> impl Widget<AppState> {
     let mut c1 = Flex::column();
 
-    let custom_widget = CustomWidget::new();
+    let custom_widget = CustomWidgetContainer::new();
 
     c1.add_child(custom_widget);
     c1//.debug_paint_layout()
