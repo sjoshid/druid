@@ -62,7 +62,7 @@ fn main() {
         first_date_of_current_month.month(),
         first_date_of_current_month.weekday().number_from_sunday(),
     );
-    let days_in_current_month: Vector<u32> = (1..=CalendarDateWidget::get_number_of_days_in_a_month(
+    let days_in_current_month: Vector<u32> = (1..=get_number_of_days_in_a_month(
         first_date_of_current_month.year(),
         first_date_of_current_month.month(),
     ) as u32)
@@ -79,6 +79,8 @@ fn main() {
         current_month_of_year: today.month(),
         current_year: today.year(),
         all_dates,
+        active_index: None,
+        inactive_index: None,
     };
 
     let current_time = CurrentTimeData {
@@ -97,6 +99,16 @@ fn main() {
         .use_simple_logger()
         .launch(data)
         .expect("launch failed");
+}
+
+pub fn get_number_of_days_in_a_month(year: i32, month: u32) -> i64 {
+    if month == 12 {
+        NaiveDate::from_ymd(year + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd(year, month + 1, 1)
+    }
+        .signed_duration_since(NaiveDate::from_ymd(year, month, 1))
+        .num_days()
 }
 
 /*fn main() {

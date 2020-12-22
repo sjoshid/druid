@@ -43,6 +43,8 @@ pub struct CalendarData {
     pub current_year: i32,
     //pub current_mont_data: CurrentMonthData,
     pub all_dates: Vector<u32>,
+    pub active_index: Option<usize>,
+    pub inactive_index: Option<usize>,
 }
 
 pub struct CurrentMonthData {
