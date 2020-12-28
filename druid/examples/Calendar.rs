@@ -8,7 +8,7 @@ use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, Tim
 use chrono::format::Numeric::Day;
 use druid::widget::{Align, BackgroundBrush, CalendarDateWidget, Container, CurrentTimeWidget, Flex, Label, Checkbox};
 use druid::{
-    theme, AppLauncher, BoxConstraints, CalendarData, CurrentMonthData, CurrentTimeData, Data,
+    theme, AppLauncher, BoxConstraints, CalendarData, DateDetails, CurrentTimeData, Data,
     DateWidgetData, Env, Event, EventCtx, LayoutCtx, Lens, LensExt, LifeCycle, LifeCycleCtx,
     PaintCtx, Size, UpdateCtx, Widget, WidgetExt, WidgetPod, WindowDesc,
 };
@@ -57,21 +57,47 @@ fn main() {
     let main_window = WindowDesc::new(ui_builder).title("Calendar");
     let today = Local::now();
     let first_date_of_current_month = NaiveDate::from_ymd(today.year(), today.month(), 1);
+    let mut all_dates = Vector::new();
+
     let days_in_previous_month = get_last_n_days_of_previous_month(
         first_date_of_current_month.year(),
         first_date_of_current_month.month(),
         first_date_of_current_month.weekday().number_from_sunday(),
     );
+    let days_in_previous_month_len = days_in_previous_month.len();
+    for date in days_in_previous_month {
+        let date_details = DateDetails {
+            date,
+            draw_border: false,
+            grey_date: true,
+        };
+        all_dates.push_back(date_details);
+    }
     let days_in_current_month: Vector<u32> = (1..=get_number_of_days_in_a_month(
         first_date_of_current_month.year(),
         first_date_of_current_month.month(),
     ) as u32)
         .collect();
+    let days_in_current_month_len = days_in_current_month.len();
+    for date in days_in_current_month {
+        let date_details = DateDetails {
+            date,
+            draw_border: false,
+            grey_date: false,
+        };
+        all_dates.push_back(date_details);
+    }
     let days_in_next_month: Vector<u32> =
-        (1..=(35 - (days_in_current_month.len() + days_in_previous_month.len()) as u32)).collect();
+        (1..=(35 - (days_in_current_month_len + days_in_previous_month_len) as u32)).collect();
 
-    let all_dates: Vector<u32> =
-        days_in_previous_month.add(days_in_current_month.add(days_in_next_month));
+    for date in days_in_next_month {
+        let date_details = DateDetails {
+            date,
+            draw_border: false,
+            grey_date: true,
+        };
+        all_dates.push_back(date_details);
+    }
 
     let day_and_month = CalendarData {
         current_day_of_month: today.day(),
@@ -79,8 +105,8 @@ fn main() {
         current_month_of_year: today.month(),
         current_year: today.year(),
         all_dates,
-        active_index: None,
-        inactive_index: None,
+        active_date_details_index: None,
+        inactive_date_details_index: None,
     };
 
     let current_time = CurrentTimeData {

@@ -1,77 +1,16 @@
 use crate::calendar_data::{DAYS_OF_WEEK, DEFAULT_DAY_WIDGET_SIZE, DEFAULT_GRID_SPACING};
 use crate::widget::{BackgroundBrush, Container, Label, Painter};
-use crate::{theme, BoxConstraints, CalendarData, Env, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx, PaintCtx, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt, WidgetPod, MouseButton};
-use chrono::{Datelike, NaiveDate};
+use crate::{theme, BoxConstraints, CalendarData, Env, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx, PaintCtx, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt, WidgetPod, MouseButton, DateDetails};
+use chrono::{Datelike, NaiveDate, Date};
 use druid_shell::piet::Color;
 use std::ops::Add;
 
-/// Wraps a Label in a Container.
-/// I chose Container because it takes a &mut that adds a border. Not sure if this is the right choice.
-struct CustomLabelWrapper {
-	label_in_container: Container<String>,
-}
-
-impl CustomLabelWrapper {
-	pub fn new(text: String) -> Self {
-		CustomLabelWrapper {
-			label_in_container: Container::new(Label::new(text)),
-		}
-	}
-}
-
-impl Widget<(String, bool)> for CustomLabelWrapper {
-	fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut (String, bool), env: &Env) {
-		match event {
-			Event::MouseDown(mouse_event) => {
-				if mouse_event.button == MouseButton::Left {
-					ctx.set_active(true);
-				}
-			}
-			Event::MouseUp(mouse_event) => {
-				if ctx.is_active() && mouse_event.button == MouseButton::Left {
-					ctx.set_active(false);
-				}
-			}
-			_ => {}
-		}
-	}
-
-	fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &(String, bool), env: &Env) {
-		match event {
-			LifeCycle::WidgetAdded => {
-				self.label_in_container.lifecycle(ctx, event, &(*data).0, env);
-			}
-			_ => {}
-		}
-	}
-
-	fn update(&mut self, ctx: &mut UpdateCtx, old_data: &(String, bool), data: &(String, bool), env: &Env) {
-		self.label_in_container.update(ctx, &(*old_data).0, &(*data).0, env);
-	}
-
-	fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &(String, bool), env: &Env) -> Size {
-		self.label_in_container.layout(ctx, bc, &(*data).0, env)
-	}
-
-	fn paint(&mut self, ctx: &mut PaintCtx, data: &(String, bool), env: &Env) {
-		let border = data.1;
-		println!("inner paint ");
-		self.label_in_container.paint(ctx, &(*data).0, env);
-		if border {
-			println!("i {:?}", *data);
-			self.label_in_container.set_border(Color::WHITE, 1.);
-		} else {
-			println!("i {:?}", *data);
-			self.label_in_container.set_border(theme::BACKGROUND_LIGHT, 1.);
-		}
-	}
-}
 
 pub struct CalendarDateWidget {
 	days_widget: Vec<WidgetPod<String, Container<String>>>,
 	//su, mo, tu, etc.
 	// date of month cannot be a const. it changes per month
-	dates_of_month_widget: Vec<WidgetPod<CalendarData, Container<CalendarData>>>, // this will be used to highlight.
+	dates_of_month_widget: Vec<WidgetPod<DateDetails, CustomDateWrapper>>, // this will be used to highlight.
 }
 
 impl CalendarDateWidget {
@@ -93,7 +32,7 @@ impl CalendarDateWidget {
 		days_widgets
 	}
 
-	fn current_date_painter() -> Painter<u32> {
+	fn current_date_painter() -> Painter<DateDetails> {
 		let painter = Painter::new(|ctx, _, env| {
 			let bounds = ctx.size().to_rect();
 
@@ -121,26 +60,122 @@ impl CalendarDateWidget {
 	}
 }
 
+/// Wraps a Label in a Container.
+/// I chose Container because it takes a &mut that adds a border. Not sure if this is the right choice.
+struct CustomDateWrapper {
+	label_in_container: Container<String>,
+	draw_border: bool,
+	grey_date: bool,
+}
+
+impl CustomDateWrapper {
+	/*pub fn new() -> Self {
+		CustomDateWrapper {
+			label_in_container: Container::new(Label::new(String::from(""))),
+		}
+	}*/
+
+	/*pub fn new(label: Container<String>) -> Self {
+		CustomDateWrapper {
+			label_in_container: label,
+		}
+	}*/
+
+	pub fn new(date_details: DateDetails) -> Self {
+		CustomDateWrapper {
+			//label_in_container: Container::new(Label::dynamic(|date: &u32, _| date.to_string()).lens(DateDetails::date)),
+			label_in_container: Container::new(Label::new(date_details.date.to_string())),
+			draw_border: date_details.draw_border,
+			grey_date: date_details.grey_date,
+		}
+	}
+}
+
+impl Widget<DateDetails> for CustomDateWrapper {
+	fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut DateDetails, env: &Env) {
+		match event {
+			Event::MouseDown(mouse_event) => {
+				if mouse_event.button == MouseButton::Left {
+					ctx.set_active(true);
+				}
+				//ctx.request_paint();
+			}
+			Event::MouseUp(mouse_event) => {
+				if ctx.is_active() && mouse_event.button == MouseButton::Left {
+					ctx.set_active(false);
+				}
+				//ctx.request_paint();
+			}
+			_ => {}
+		}
+	}
+
+	fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &DateDetails, env: &Env) {
+		match event {
+			LifeCycle::WidgetAdded => {
+				/*let dynamic_date =
+					Label::dynamic(|date_details: &DateDetails, _| date_details.date.to_string())
+						.center()
+						//.background(CalendarDateWidget::current_date_painter())
+						//.on_click(|ctx, data: &mut u32, _env| println!("clicked"))
+						.lens(CalendarData::all_dates.index(0));
+				self.label_in_container = Container::new(dynamic_date.padding(3.));*/
+				self.label_in_container.lifecycle(ctx, event, &data.date.to_string(), env);
+			}
+			_ => {}
+		}
+	}
+
+	fn update(&mut self, ctx: &mut UpdateCtx, old_data: &DateDetails, data: &DateDetails, env: &Env) {
+		self.label_in_container.update(ctx, &old_data.date.to_string(), &data.date.to_string(), env);
+	}
+
+	fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &DateDetails, env: &Env) -> Size {
+		self.label_in_container.layout(ctx, bc, &data.date.to_string(), env)
+	}
+
+	fn paint(&mut self, ctx: &mut PaintCtx, data: &DateDetails, env: &Env) {
+		self.label_in_container.paint(ctx, &data.date.to_string(), env);
+		let border = data.draw_border;
+		if border {
+			//println!("draw border for date {:?}", data.date);
+			self.label_in_container.set_border(Color::WHITE, 1.);
+
+		} else {
+			//println!("remove border for date {:?}", data.date);
+			self.label_in_container.set_border(theme::BACKGROUND_LIGHT, 1.);
+		}
+	}
+}
+
 impl Widget<CalendarData> for CalendarDateWidget {
 	fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut CalendarData, env: &Env) {
 		match event {
 			Event::MouseDown(mouse_event) => {
-				for (i, date_widget) in self.dates_of_month_widget.iter_mut().enumerate() {
-					date_widget.event(ctx, event, data, env);
-					if date_widget.has_active() { // we cant have date_widget.is_active()
-						if data.active_index.is_some() {
-							data.inactive_index = data.active_index;
+				for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
+					dynamic_date.event(ctx, event, &mut data.all_dates[i], env);
+					if dynamic_date.has_active() { // we cant have date_widget.is_active()
+						if data.active_date_details_index.is_some() {
+							data.inactive_date_details_index = data.active_date_details_index;
 						}
-						data.active_index = Some(i);
-						println!("active index {:?}", data.active_index);
-						println!("inactive index {:?}", data.inactive_index);
+						data.active_date_details_index = Some(i);
 					}
 				}
+				if data.active_date_details_index.is_some() {
+					let mut active_date = &mut data.all_dates[data.active_date_details_index.unwrap()];
+					active_date.draw_border = true;
+				}
+				if data.inactive_date_details_index.is_some() {
+					let mut inactive_date = &mut data.all_dates[data.inactive_date_details_index.unwrap()];
+					inactive_date.draw_border = false;
+				}
+				ctx.request_paint();
 			}
 			Event::MouseUp(mouse_event) => {
-				for date_widget in self.dates_of_month_widget.iter_mut() {
-					date_widget.event(ctx, event, data, env);
+				for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
+					dynamic_date.event(ctx, event, &mut data.all_dates[i], env);
 				}
+				ctx.request_paint();
 			}
 			_ => {}
 		}
@@ -161,46 +196,20 @@ impl Widget<CalendarData> for CalendarDateWidget {
 				}
 
 				let mut is_current_month = false;
-				for (i, date) in data.all_dates.iter().enumerate() {
-					if *date == 1 {
+				for (i, d) in data.all_dates.iter().enumerate() {
+					if d.date == 1 {
 						is_current_month = true;
 					}
 
-					if *date == data.current_day_of_month && is_current_month {
-						let dynamic_date =
-							Label::dynamic(|date_of_month: &u32, _| date_of_month.to_string())
-								.center()
-								.background(CalendarDateWidget::current_date_painter())
-								.on_click(|ctx, data: &mut u32, _env| println!("clicked"))
-								.lens(CalendarData::all_dates.index(i));
-						let date_widget = Container::new(dynamic_date.padding(3.))
-							.background(CalendarDateWidget::outer_date_painter());
-
-						let mut date_widget = WidgetPod::new(date_widget);
-						self.dates_of_month_widget.push(date_widget);
-					} else {
-						let dynamic_date =
-							Label::dynamic(|date_of_month: &u32, _| date_of_month.to_string())
-								.center()
-								.on_click(|ctx, data: &mut u32, _env| println!("clicked"))
-								.lens(CalendarData::all_dates.index(i));
-						let date_widget = Container::new(dynamic_date.padding(3.))
-							.background(CalendarDateWidget::outer_date_painter());
-
-						let mut date_widget = WidgetPod::new(date_widget);
-						self.dates_of_month_widget.push(date_widget);
-					}
+					let mut date_widget = WidgetPod::new(CustomDateWrapper::new(d.clone()));
+					self.dates_of_month_widget.push(date_widget);
 				}
 
-				for dynamic_date in self.dates_of_month_widget.iter_mut() {
-					dynamic_date.lifecycle(ctx, event, &data, env);
+				for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
+					dynamic_date.lifecycle(ctx, event, &data.all_dates[i], env);
 				}
 			}
-			_ => {
-				for date_widget in self.dates_of_month_widget.iter_mut() {
-					date_widget.lifecycle(ctx, event, &data, env);
-				}
-			}
+			_ => {}
 		}
 	}
 
@@ -211,8 +220,8 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		data: &CalendarData,
 		env: &Env,
 	) {
-		for date_widget in self.dates_of_month_widget.iter_mut() {
-			date_widget.update(ctx, old_data, env);
+		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
+			dynamic_date.update(ctx, &data.all_dates[i], env);
 		}
 	}
 
@@ -257,10 +266,10 @@ impl Widget<CalendarData> for CalendarDateWidget {
 			date_widget.layout(
 				ctx,
 				&BoxConstraints::new(DEFAULT_DAY_WIDGET_SIZE, DEFAULT_DAY_WIDGET_SIZE),
-				&data,
+				&data.all_dates[i],
 				env,
 			);
-			date_widget.set_layout_rect(ctx, &data, env, rect);
+			date_widget.set_layout_rect(ctx, &data.all_dates[i], env, rect);
 			x_position += DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING;
 		}
 
@@ -275,9 +284,9 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
 			day_widget.paint(ctx, &String::from(*day), env);
 		}
-
-		for date_widget in self.dates_of_month_widget.iter_mut() {
-			date_widget.paint(ctx, &data, env);
+		println!("outer paint");
+		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
+			dynamic_date.paint(ctx, &data.all_dates[i], env);
 		}
 	}
 }

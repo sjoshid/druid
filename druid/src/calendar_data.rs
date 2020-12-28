@@ -42,13 +42,14 @@ pub struct CalendarData {
     /// 2020, 2021, etc.
     pub current_year: i32,
     //pub current_mont_data: CurrentMonthData,
-    pub all_dates: Vector<u32>,
-    pub active_index: Option<usize>,
-    pub inactive_index: Option<usize>,
+    pub all_dates: Vector<DateDetails>,
+    pub active_date_details_index: Option<usize>,
+    pub inactive_date_details_index: Option<usize>,
 }
 
-pub struct CurrentMonthData {
-    pub days_of_month: Vector<u32>,
-    pub index_of_first_day: u32,
-    pub index_of_last_day: u32,
+#[derive(Clone, Data, Lens, Debug)]
+pub struct DateDetails {
+    pub date: u32,
+    pub draw_border: bool,
+    pub grey_date: bool,
 }
