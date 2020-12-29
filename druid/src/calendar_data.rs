@@ -52,4 +52,5 @@ pub struct DateDetails {
     pub date: u32,
     pub draw_border: bool,
     pub grey_date: bool,
+    pub date_is_todays: bool,
 }

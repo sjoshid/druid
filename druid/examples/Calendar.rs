@@ -70,6 +70,7 @@ fn main() {
             date,
             draw_border: false,
             grey_date: true,
+            date_is_todays: false,
         };
         all_dates.push_back(date_details);
     }
@@ -79,11 +80,19 @@ fn main() {
     ) as u32)
         .collect();
     let days_in_current_month_len = days_in_current_month.len();
+    let todays_date = today.day();
     for date in days_in_current_month {
+        let date_is_todays = if date == todays_date {
+            true
+        } else {
+            false
+        };
+
         let date_details = DateDetails {
             date,
-            draw_border: false,
+            draw_border: date_is_todays,
             grey_date: false,
+            date_is_todays,
         };
         all_dates.push_back(date_details);
     }
@@ -95,6 +104,7 @@ fn main() {
             date,
             draw_border: false,
             grey_date: true,
+            date_is_todays: false,
         };
         all_dates.push_back(date_details);
     }

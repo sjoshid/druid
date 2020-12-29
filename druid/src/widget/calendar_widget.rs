@@ -31,60 +31,29 @@ impl CalendarDateWidget {
 
 		days_widgets
 	}
-
-	fn current_date_painter() -> Painter<DateDetails> {
-		let painter = Painter::new(|ctx, _, env| {
-			let bounds = ctx.size().to_rect();
-
-			ctx.fill(bounds, &env.get(theme::PRIMARY_DARK));
-		});
-		painter
-	}
-
-	fn outer_date_painter() -> Painter<CalendarData> {
-		let painter = Painter::new(|ctx, _, env| {
-			let bounds = ctx.size().to_rect();
-			//ctx.fill(bounds, &env.get(theme::PRIMARY_DARK));
-
-			/*if ctx.is_hot() {
-				//ctx.stroke(bounds.inset(-0.5), &Color::WHITE, 1.0);
-				println!("outer date hot");
-			}*/
-
-			if ctx.is_active() {
-				println!("outer date active");
-				ctx.fill(bounds, &env.get(theme::PRIMARY_LIGHT));
-			}
-		});
-		painter
-	}
 }
 
 /// Wraps a Label in a Container.
 /// I chose Container because it takes a &mut that adds a border. Not sure if this is the right choice.
 struct CustomDateWrapper {
-	label_in_container: Container<String>,
+	label_in_container: Container<DateDetails>,
 	draw_border: bool,
 	grey_date: bool,
 }
 
 impl CustomDateWrapper {
-	/*pub fn new() -> Self {
-		CustomDateWrapper {
-			label_in_container: Container::new(Label::new(String::from(""))),
-		}
-	}*/
-
-	/*pub fn new(label: Container<String>) -> Self {
-		CustomDateWrapper {
-			label_in_container: label,
-		}
-	}*/
-
 	pub fn new(date_details: DateDetails) -> Self {
+		let dynamic_label = Label::dynamic(|data: &u32, _| data.to_string()).center().lens(DateDetails::date);
+
+		let label_in_container = if date_details.date_is_todays {
+			Container::new(dynamic_label.background(Color::rgb(0., 1., 0.)).padding(3.))
+		} else {
+			let mut diff_color = Container::new(dynamic_label.padding(3.));
+			diff_color
+		};
+
 		CustomDateWrapper {
-			//label_in_container: Container::new(Label::dynamic(|date: &u32, _| date.to_string()).lens(DateDetails::date)),
-			label_in_container: Container::new(Label::new(date_details.date.to_string())),
+			label_in_container,
 			draw_border: date_details.draw_border,
 			grey_date: date_details.grey_date,
 		}
@@ -98,13 +67,11 @@ impl Widget<DateDetails> for CustomDateWrapper {
 				if mouse_event.button == MouseButton::Left {
 					ctx.set_active(true);
 				}
-				//ctx.request_paint();
 			}
 			Event::MouseUp(mouse_event) => {
 				if ctx.is_active() && mouse_event.button == MouseButton::Left {
 					ctx.set_active(false);
 				}
-				//ctx.request_paint();
 			}
 			_ => {}
 		}
@@ -113,38 +80,32 @@ impl Widget<DateDetails> for CustomDateWrapper {
 	fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &DateDetails, env: &Env) {
 		match event {
 			LifeCycle::WidgetAdded => {
-				/*let dynamic_date =
-					Label::dynamic(|date_details: &DateDetails, _| date_details.date.to_string())
-						.center()
-						//.background(CalendarDateWidget::current_date_painter())
-						//.on_click(|ctx, data: &mut u32, _env| println!("clicked"))
-						.lens(CalendarData::all_dates.index(0));
-				self.label_in_container = Container::new(dynamic_date.padding(3.));*/
-				self.label_in_container.lifecycle(ctx, event, &data.date.to_string(), env);
+				self.label_in_container.lifecycle(ctx, event, data, env);
 			}
 			_ => {}
 		}
 	}
 
 	fn update(&mut self, ctx: &mut UpdateCtx, old_data: &DateDetails, data: &DateDetails, env: &Env) {
-		self.label_in_container.update(ctx, &old_data.date.to_string(), &data.date.to_string(), env);
+		self.label_in_container.update(ctx, old_data, data, env);
 	}
 
 	fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &DateDetails, env: &Env) -> Size {
-		self.label_in_container.layout(ctx, bc, &data.date.to_string(), env)
+		self.label_in_container.layout(ctx, bc, data, env)
 	}
 
 	fn paint(&mut self, ctx: &mut PaintCtx, data: &DateDetails, env: &Env) {
-		self.label_in_container.paint(ctx, &data.date.to_string(), env);
+		self.label_in_container.paint(ctx, data, env);
 		let border = data.draw_border;
 		if border {
 			//println!("draw border for date {:?}", data.date);
-			self.label_in_container.set_border(Color::WHITE, 1.);
-
+			self.label_in_container.set_border(Color::rgb(0., 1., 0.), 2.);
 		} else {
 			//println!("remove border for date {:?}", data.date);
-			self.label_in_container.set_border(theme::BACKGROUND_LIGHT, 1.);
+			//sj_todo there is no way to remove a border. But we can set its color to same as widget bg color.
+			self.label_in_container.set_border(Color::rgb(1., 0., 0.), 2.);
 		}
+		//self.label_in_container.set_background(Color::BLACK);
 	}
 }
 
@@ -221,6 +182,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		env: &Env,
 	) {
 		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
+			// sj_todo check here for data diff before update?
 			dynamic_date.update(ctx, &data.all_dates[i], env);
 		}
 	}
