@@ -95,7 +95,6 @@ impl Widget<DateDetails> for CustomDateWrapper {
 	}
 
 	fn paint(&mut self, ctx: &mut PaintCtx, data: &DateDetails, env: &Env) {
-		self.label_in_container.paint(ctx, data, env);
 		let border = data.draw_border;
 		if border {
 			//println!("draw border for date {:?}", data.date);
@@ -105,6 +104,9 @@ impl Widget<DateDetails> for CustomDateWrapper {
 			//sj_todo there is no way to remove a border. But we can set its color to same as widget bg color.
 			self.label_in_container.set_border(Color::rgb(1., 0., 0.), 2.);
 		}
+		println!("painting date flex with id {:?}", ctx.widget_state.id);
+
+		self.label_in_container.paint(ctx, data, env);
 		//self.label_in_container.set_background(Color::BLACK);
 	}
 }
@@ -138,7 +140,12 @@ impl Widget<CalendarData> for CalendarDateWidget {
 				}
 				ctx.request_paint();
 			}
-			_ => {}
+			Event::MouseMove(mouse_event) => {
+				//swallow
+			}
+			_ => {
+				println!("event {:?}", event);
+			}
 		}
 	}
 
@@ -170,7 +177,9 @@ impl Widget<CalendarData> for CalendarDateWidget {
 					dynamic_date.lifecycle(ctx, event, &data.all_dates[i], env);
 				}
 			}
-			_ => {}
+			_ => {
+				//println!("lifecycle {:?}", event);
+			}
 		}
 	}
 
@@ -181,6 +190,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		data: &CalendarData,
 		env: &Env,
 	) {
+		println!("update calendar");
 		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
 			// sj_todo check here for data diff before update?
 			dynamic_date.update(ctx, &data.all_dates[i], env);
@@ -246,7 +256,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
 			day_widget.paint(ctx, &String::from(*day), env);
 		}
-		println!("outer paint");
+		println!("outer paint for id {:?}", ctx.widget_state.id);
 		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
 			dynamic_date.paint(ctx, &data.all_dates[i], env);
 		}

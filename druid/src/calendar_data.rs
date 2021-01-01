@@ -17,7 +17,7 @@ pub struct DateWidgetData {
     //current_day_tasks: Arc<HashMap<String, Vec<Label<String>>>>,
 }
 
-#[derive(Clone, Data, Lens)]
+#[derive(Clone, Data, Lens, Debug)]
 pub struct CurrentTimeData {
     /// 00..23
     pub current_hour_of_day: u32,

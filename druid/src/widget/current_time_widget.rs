@@ -59,6 +59,7 @@ impl CurrentTimeWidget {
 
     fn am_pm_label() -> impl Fn(&CurrentTimeData, &Env) -> String + 'static {
         |c: &CurrentTimeData, _| {
+            println!("updating am_pm_label text");
             if c.twelve_hour_format {
                 if c.current_hour_of_day < 12 {
                     String::from("AM")
@@ -79,16 +80,18 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
             Event::WindowConnected => {
                 let deadline = Duration::from_millis(1000);
                 self.timer_id = ctx.request_timer(deadline);
+                ctx.is_handled = true;
             }
             Event::Timer(id) => {
                 if *id == self.timer_id {
                     let deadline = Duration::from_millis(1000); // one sec
                     let today = Local::now();
-                    data.current_hour_of_day = today.hour();
+                    /*data.current_hour_of_day = today.hour();
                     data.current_minute_of_hour = today.minute();
-                    data.current_second_of_minute = today.second();
+                    data.current_second_of_minute = today.second();*/
 
                     self.timer_id = ctx.request_timer(deadline);
+                    ctx.is_handled = true;
                 }
             }
             _ => {}
@@ -118,7 +121,8 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
         data: &CurrentTimeData,
         env: &Env,
     ) {
-        self.time_label.update(ctx, &data, env);
+        //self.time_label.update(ctx, &data, env);
+        println!("updating am_pm_label");
         self.am_pm_label.update(ctx, &data, env);
     }
 
