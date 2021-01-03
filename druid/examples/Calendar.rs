@@ -51,6 +51,7 @@ fn ui_builder() -> impl Widget<DateWidgetData> {
     c1.add_child(calendar_widget);
 
     c1//.debug_paint_layout()
+    //c1.debug_widget_id()
 }
 
 fn main() {
