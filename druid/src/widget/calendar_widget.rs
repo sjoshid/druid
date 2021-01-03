@@ -17,7 +17,7 @@ impl CalendarDateWidget {
 	pub fn new() -> CalendarDateWidget {
 		CalendarDateWidget {
 			days_widget: Vec::with_capacity(7),
-			dates_of_month_widget: Vec::with_capacity(35),
+			dates_of_month_widget: Vec::with_capacity(42),
 		}
 	}
 
@@ -238,7 +238,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		Size {
 			width: (DEFAULT_DAY_WIDGET_SIZE.width + DEFAULT_GRID_SPACING)
 				* DAYS_OF_WEEK.len() as f64,
-			height: (DEFAULT_DAY_WIDGET_SIZE.height + DEFAULT_GRID_SPACING) * 6.,
+			height: (DEFAULT_DAY_WIDGET_SIZE.height + DEFAULT_GRID_SPACING) * 7.,
 		}
 	}
 

@@ -97,7 +97,7 @@ fn main() {
         all_dates.push_back(date_details);
     }
     let days_in_next_month: Vector<u32> =
-        (1..=(35 - (days_in_current_month_len + days_in_previous_month_len) as u32)).collect();
+        (1..=(42 - (days_in_current_month_len + days_in_previous_month_len) as u32)).collect();
 
     for date in days_in_next_month {
         let date_details = DateDetails {
