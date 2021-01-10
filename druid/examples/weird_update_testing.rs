@@ -12,34 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp, time, thread};
+use std::{cmp, thread, time};
+use std::num::NonZeroU64;
 
 use druid::{Affine, AppLauncher, Color, Data, FontDescriptor, Lens, LocalizedString, MouseButton, Point, Rect, TextLayout, theme, WidgetExt, WidgetPod, WindowDesc};
 use druid::kurbo::BezPath;
 use druid::piet::{FontFamily, ImageFormat, InterpolationMode, Text, TextLayoutBuilder};
-use druid::widget::{Container, Flex, Label, List};
+use druid::widget::{Checkbox, Container, Flex, Label, List};
 use druid::widget::prelude::*;
 
 #[derive(Clone, Data, Lens, Debug)]
 struct MyData {
-	data_for_widget_a: u32,
-	data_for_widget_b: u32
+	value: bool,
 }
 
 fn ui_builder() -> impl Widget<MyData> {
 	let mut c1 = Flex::column();
 
-	let label_1 = Label::dynamic(|data: &u32, env: &Env| data.to_string()).lens(MyData::data_for_widget_a);
-	let label_2 = Label::new(|data: &u32, env: &Env| data.to_string()).lens(MyData::data_for_widget_b);
+	let label_1 = Label::dynamic(|data: &bool, env: &Env| data.to_string()).with_id(WidgetId::next()).lens(MyData::value);
+	let label_2 = Label::new(String::from("static label 1"));
+	let label_3 = Label::new(String::from("static label 2"));
+	let my_cb = Checkbox::new("click me").with_id(WidgetId::next()).lens(MyData::value);
 
-	let my_list = List::new(|| Label::new())
-		.horizontal()
-		.with_spacing(10.0)
-		.lens(AppState::thumbnails);
-
-	c1.add_child(label_1);
+	//c1.add_child(label_1);
 	c1.add_child(label_2);
-	c1//.debug_paint_layout()
+	c1.add_child(label_3);
+	c1.add_child(my_cb);
+	c1
 }
 
 
@@ -47,8 +46,7 @@ pub fn main() {
 	let main_window = WindowDesc::new(ui_builder).title("Testing something..");
 
 	let mut app_state = MyData {
-		data_for_widget_a: 0,
-		data_for_widget_b: 0,
+		value: true,
 	};
 
 	AppLauncher::with_window(main_window)
