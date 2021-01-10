@@ -86,9 +86,9 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
                 if *id == self.timer_id {
                     let deadline = Duration::from_millis(1000); // one sec
                     let today = Local::now();
-                    /*data.current_hour_of_day = today.hour();
+                    data.current_hour_of_day = today.hour();
                     data.current_minute_of_hour = today.minute();
-                    data.current_second_of_minute = today.second();*/
+                    data.current_second_of_minute = today.second();
 
                     self.timer_id = ctx.request_timer(deadline);
                     ctx.is_handled = true;
@@ -121,8 +121,7 @@ impl Widget<CurrentTimeData> for CurrentTimeWidget {
         data: &CurrentTimeData,
         env: &Env,
     ) {
-        //self.time_label.update(ctx, &data, env);
-        println!("updating am_pm_label");
+        self.time_label.update(ctx, &data, env);
         self.am_pm_label.update(ctx, &data, env);
     }
 

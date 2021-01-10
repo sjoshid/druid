@@ -1,10 +1,9 @@
 use crate::calendar_data::{DAYS_OF_WEEK, DEFAULT_DAY_WIDGET_SIZE, DEFAULT_GRID_SPACING};
 use crate::widget::{BackgroundBrush, Container, Label, Painter};
-use crate::{theme, BoxConstraints, CalendarData, Env, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx, PaintCtx, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt, WidgetPod, MouseButton, DateDetails};
+use crate::{theme, BoxConstraints, CalendarData, Env, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx, PaintCtx, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt, WidgetPod, MouseButton, DateDetails, SHOW_NEXT_CALENDAR, SHOW_PREVIOUS_CALENDAR};
 use chrono::{Datelike, NaiveDate, Date};
 use druid_shell::piet::Color;
 use std::ops::Add;
-
 
 pub struct CalendarDateWidget {
 	days_widget: Vec<WidgetPod<String, Container<String>>>,
@@ -104,10 +103,7 @@ impl Widget<DateDetails> for CustomDateWrapper {
 			//sj_todo there is no way to remove a border. But we can set its color to same as widget bg color.
 			self.label_in_container.set_border(Color::rgb(1., 0., 0.), 2.);
 		}
-		println!("painting date flex with id {:?}", ctx.widget_state.id);
-
 		self.label_in_container.paint(ctx, data, env);
-		//self.label_in_container.set_background(Color::BLACK);
 	}
 }
 
@@ -190,7 +186,6 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		data: &CalendarData,
 		env: &Env,
 	) {
-		println!("update calendar");
 		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
 			// sj_todo check here for data diff before update?
 			dynamic_date.update(ctx, &data.all_dates[i], env);
@@ -256,7 +251,6 @@ impl Widget<CalendarData> for CalendarDateWidget {
 		for (day, mut day_widget) in DAYS_OF_WEEK.iter().zip(self.days_widget.iter_mut()) {
 			day_widget.paint(ctx, &String::from(*day), env);
 		}
-		println!("outer paint for id {:?}", ctx.widget_state.id);
 		for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
 			dynamic_date.paint(ctx, &data.all_dates[i], env);
 		}
