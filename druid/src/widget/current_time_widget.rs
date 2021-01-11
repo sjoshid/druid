@@ -59,7 +59,6 @@ impl CurrentTimeWidget {
 
     fn am_pm_label() -> impl Fn(&CurrentTimeData, &Env) -> String + 'static {
         |c: &CurrentTimeData, _| {
-            println!("updating am_pm_label text");
             if c.twelve_hour_format {
                 if c.current_hour_of_day < 12 {
                     String::from("AM")

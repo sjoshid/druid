@@ -44,12 +44,7 @@ impl CustomDateWrapper {
 	pub fn new(date_details: DateDetails) -> Self {
 		let dynamic_label = Label::dynamic(|data: &u32, _| data.to_string()).center().lens(DateDetails::date);
 
-		let label_in_container = if date_details.date_is_todays {
-			Container::new(dynamic_label.background(Color::rgb(0., 1., 0.)).padding(3.))
-		} else {
-			let mut diff_color = Container::new(dynamic_label.padding(3.));
-			diff_color
-		};
+		let label_in_container = Container::new(dynamic_label.padding(3.));
 
 		CustomDateWrapper {
 			label_in_container,
@@ -96,10 +91,8 @@ impl Widget<DateDetails> for CustomDateWrapper {
 	fn paint(&mut self, ctx: &mut PaintCtx, data: &DateDetails, env: &Env) {
 		let border = data.draw_border;
 		if border {
-			//println!("draw border for date {:?}", data.date);
 			self.label_in_container.set_border(Color::rgb(0., 1., 0.), 2.);
 		} else {
-			//println!("remove border for date {:?}", data.date);
 			//sj_todo there is no way to remove a border. But we can set its color to same as widget bg color.
 			self.label_in_container.set_border(Color::rgb(1., 0., 0.), 2.);
 		}

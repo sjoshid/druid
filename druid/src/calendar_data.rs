@@ -127,7 +127,6 @@ impl CalendarData {
 	}
 
 	fn get_all_dates_for_given_month_and_year(year: i32, month: u32) -> Vector<DateDetails> {
-		println!("year {}, month {}", year, month);
 		let first_date_of_current_month = NaiveDate::from_ymd(year, month, 1);
 		let mut all_dates = Vector::new();
 
@@ -184,7 +183,6 @@ impl CalendarData {
 			all_dates.push_back(date_details);
 		}
 
-		println!("all dates {:?}", all_dates);
 		all_dates
 	}
 
