@@ -14,6 +14,11 @@
 
 //! Common widgets.
 
+// First as it defines macros
+#[macro_use]
+mod widget_wrapper;
+
+mod added;
 mod align;
 mod button;
 mod checkbox;
@@ -64,6 +69,7 @@ pub use current_time_widget::CurrentTimeWidget;
 pub use calendar_widget::CalendarDateWidget;
 
 pub use self::image::Image;
+pub use added::Added;
 pub use align::Align;
 pub use button::Button;
 pub use checkbox::Checkbox;
@@ -95,12 +101,13 @@ pub use stepper::Stepper;
 pub use svg::{Svg, SvgData};
 pub use switch::Switch;
 pub use tabs::{TabInfo, Tabs, TabsEdge, TabsPolicy, TabsState, TabsTransition};
-pub use textbox::TextBox;
+pub use textbox::{TextBox, TextBoxEvent, ValidationDelegate, ValueTextBox};
 pub use view_switcher::ViewSwitcher;
 #[doc(hidden)]
 pub use widget::{Widget, WidgetId};
 #[doc(hidden)]
 pub use widget_ext::WidgetExt;
+pub use widget_wrapper::WidgetWrapper;
 
 /// The types required to implement a `Widget`.
 ///
@@ -126,7 +133,7 @@ pub use widget_ext::WidgetExt;
 pub mod prelude {
     #[doc(hidden)]
     pub use crate::{
-        BoxConstraints, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx,
+        BoxConstraints, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx,
         RenderContext, Size, UpdateCtx, Widget, WidgetId,
     };
 }

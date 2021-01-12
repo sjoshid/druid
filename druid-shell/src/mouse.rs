@@ -15,9 +15,9 @@
 //! Common types for representing mouse events and state
 
 use crate::kurbo::{Point, Vec2};
+use crate::piet::ImageBuf;
 use crate::platform;
-
-use crate::{ImageBuf, Modifiers};
+use crate::Modifiers;
 
 /// Information about the mouse event.
 ///
@@ -230,6 +230,12 @@ impl MouseButtons {
     #[inline]
     pub fn clear(&mut self) {
         self.0 = 0;
+    }
+
+    /// Count the number of pressed buttons in the set.
+    #[inline]
+    pub fn count(self) -> u32 {
+        self.0.count_ones()
     }
 }
 
