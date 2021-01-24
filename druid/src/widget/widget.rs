@@ -199,6 +199,9 @@ pub trait Widget<T> {
     }
 }
 
+use crate::shell::Counter;
+static WIDGET_ID_COUNTER: Counter = Counter::new();
+
 impl WidgetId {
     /// Allocate a new, unique `WidgetId`.
     ///
@@ -209,9 +212,12 @@ impl WidgetId {
     /// You must ensure that a given `WidgetId` is only ever used for one
     /// widget at a time.
     pub fn next() -> WidgetId {
-        use crate::shell::Counter;
-        static WIDGET_ID_COUNTER: Counter = Counter::new();
         WidgetId(WIDGET_ID_COUNTER.next_nonzero())
+    }
+
+    #[allow(unsafe_code)]
+    pub unsafe fn set(val: u64) {
+        WIDGET_ID_COUNTER.set(val);
     }
 
     /// Create a reserved `WidgetId`, suitable for reuse.
