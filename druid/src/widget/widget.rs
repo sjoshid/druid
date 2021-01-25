@@ -215,11 +215,6 @@ impl WidgetId {
         WidgetId(WIDGET_ID_COUNTER.next_nonzero())
     }
 
-    #[allow(unsafe_code)]
-    pub unsafe fn set(val: u64) {
-        WIDGET_ID_COUNTER.set(val);
-    }
-
     /// Create a reserved `WidgetId`, suitable for reuse.
     ///
     /// The caller is responsible for ensuring that this ID is in fact assigned
