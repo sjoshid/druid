@@ -22,8 +22,17 @@ pub struct DateWidgetData {
 	pub day_and_month: CalendarData,
 	pub current_day_month_year: (u32, u32, i32),
 	pub current_time: CurrentTimeData,
+	pub event_details: EventDetails,
 	// key like mmddyy -> list of today's task
 	//current_day_tasks: Arc<HashMap<String, Vec<Label<String>>>>,
+}
+
+#[derive(Clone, Data, Lens, Debug)]
+pub struct EventDetails {
+	pub event_title: String,
+	pub from: String,
+	pub to: String,
+	pub location: String,
 }
 
 #[derive(Clone, Data, Lens, Debug)]

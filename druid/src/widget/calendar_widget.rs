@@ -46,11 +46,9 @@ impl InnerDate {
 
 impl Widget<DateDetails> for InnerDate {
 	fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut DateDetails, env: &Env) {
-		println!("cklicked inner date");
 		match event {
 			Event::MouseDown(mouse_event) => {
 				if mouse_event.button == MouseButton::Left {
-					println!("clicked date");
 					ctx.set_active(true);
 				}
 			}
@@ -83,17 +81,15 @@ impl Widget<DateDetails> for InnerDate {
 	fn paint(&mut self, ctx: &mut PaintCtx, data: &DateDetails, env: &Env) {
 		let grey_date = data.grey_date;
 		if grey_date {
-			println!("grey date");
+			//println!("grey date");
 		} else {
-			println!("normal date color");
+			//println!("normal date color");
 		}
 
 		if data.date_is_todays {
-			println!("date is todays. background is green");
 			self.dynamic_label.set_background(Color::rgb(0., 1., 0.));
 		} else {
 			self.dynamic_label.remove_background();
-			println!("date is NOT todays. background is normal");
 		}
 		self.dynamic_label.paint(ctx, data, env);
 	}
@@ -154,7 +150,6 @@ impl Widget<CalendarData> for CalendarDateWidget {
 				for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
 					dynamic_date.event(ctx, event, &mut data.all_dates[i], env);
 					if dynamic_date.has_active() { // we cant have date_widget.is_active()
-						println!("has active");
 						if data.active_date_details_index.is_some() {
 							data.inactive_date_details_index = data.active_date_details_index;
 						}
@@ -169,7 +164,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 					let mut inactive_date = &mut data.all_dates[data.inactive_date_details_index.unwrap()];
 					inactive_date.draw_border = false;
 				}
-				ctx.request_paint();
+				//ctx.request_paint();
 			}
 			Event::MouseUp(mouse_event) => {
 				for (i, dynamic_date) in self.dates_of_month_widget.iter_mut().enumerate() {
@@ -180,9 +175,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 			Event::MouseMove(mouse_event) => {
 				//swallow
 			}
-			_ => {
-				println!("event {:?}", event);
-			}
+			_ => {}
 		}
 	}
 
@@ -231,6 +224,7 @@ impl Widget<CalendarData> for CalendarDateWidget {
 			// sj_todo check here for data diff before update?
 			dynamic_date.update(ctx, &data.all_dates[i], env);
 		}
+		//ctx.request_anim_frame();
 	}
 
 	fn layout(
