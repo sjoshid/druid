@@ -130,7 +130,7 @@ fn ui_builder() -> impl Widget<DateWidgetData> {
 	c1.add_child(calendar_flex);
 	c1.add_child(flex_left_event_details);
 
-	c1//.debug_paint_layout()
+	c1.debug_paint_layout()
 	//c1.debug_widget_id()
 }
 
