@@ -299,6 +299,8 @@ pub enum InternalLifeCycle {
         /// the widget that is gaining focus, if any
         new: Option<WidgetId>,
     },
+    /// The parents widget origin in window coordinate space has changed.
+    ParentWindowOrigin,
     /// Testing only: request the `WidgetState` of a specific widget.
     ///
     /// During testing, you may wish to verify that the state of a widget
@@ -392,8 +394,25 @@ impl LifeCycle {
     /// (for example the hidden tabs in a tabs widget).
     pub fn should_propagate_to_hidden(&self) -> bool {
         match self {
-            LifeCycle::WidgetAdded | LifeCycle::Internal(_) => true,
+            LifeCycle::Internal(internal) => internal.should_propagate_to_hidden(),
+            LifeCycle::WidgetAdded => true,
             LifeCycle::Size(_) | LifeCycle::HotChanged(_) | LifeCycle::FocusChanged(_) => false,
+        }
+    }
+}
+
+impl InternalLifeCycle {
+    /// Whether this event should be sent to widgets which are currently not visible
+    /// (for example the hidden tabs in a tabs widget).
+    pub fn should_propagate_to_hidden(&self) -> bool {
+        match self {
+            InternalLifeCycle::RouteWidgetAdded | InternalLifeCycle::RouteFocusChanged { .. } => {
+                true
+            }
+            InternalLifeCycle::ParentWindowOrigin => false,
+            #[cfg(test)]
+            InternalLifeCycle::DebugRequestState { .. }
+            | InternalLifeCycle::DebugInspectState(_) => true,
         }
     }
 }

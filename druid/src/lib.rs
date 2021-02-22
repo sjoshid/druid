@@ -56,7 +56,7 @@
 //!
 //! fn main() {
 //!     // describe the main window
-//!     let main_window = WindowDesc::new(build_root_widget)
+//!     let main_window = WindowDesc::new(build_root_widget())
 //!         .title(WINDOW_TITLE)
 //!         .window_size((400.0, 400.0));
 //!
@@ -193,11 +193,11 @@ pub use shell::{
     Application, Clipboard, ClipboardFormat, Code, Cursor, CursorDesc, Error as PlatformError,
     FileInfo, FileSpec, FormatId, HotKey, KbKey, KeyEvent, Location, Modifiers, Monitor,
     MouseButton, MouseButtons, RawMods, Region, Scalable, Scale, Screen, SysMods, TimerToken,
-    WindowHandle, WindowState,
+    WindowHandle, WindowLevel, WindowState,
 };
 
 pub use crate::core::WidgetPod;
-pub use app::{AppLauncher, WindowConfig, WindowDesc};
+pub use app::{AppLauncher, WindowConfig, WindowDesc, WindowSizePolicy};
 pub use app_delegate::{AppDelegate, DelegateCtx};
 pub use box_constraints::BoxConstraints;
 pub use command::{sys as commands, Command, Notification, Selector, SingleUse, Target};

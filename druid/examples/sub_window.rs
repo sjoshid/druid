@@ -20,7 +20,7 @@ use druid::widget::{
 use druid::{
     theme, Affine, AppLauncher, BoxConstraints, Color, Data, Env, Event, EventCtx, LayoutCtx, Lens,
     LensExt, LifeCycle, LifeCycleCtx, LocalizedString, PaintCtx, Point, Rect, RenderContext, Size,
-    TimerToken, UpdateCtx, Widget, WidgetExt, WindowConfig, WindowDesc, WindowId,
+    TimerToken, UpdateCtx, Widget, WidgetExt, WindowConfig, WindowDesc, WindowId, WindowSizePolicy,
 };
 use druid_shell::piet::Text;
 use druid_shell::{Screen, WindowLevel};
@@ -45,7 +45,7 @@ struct HelloState {
 
 pub fn main() {
     // describe the main window
-    let main_window = WindowDesc::new(build_root_widget)
+    let main_window = WindowDesc::new(build_root_widget())
         .title(WINDOW_TITLE)
         .window_size((400.0, 400.0));
 
@@ -60,7 +60,7 @@ pub fn main() {
 
     // start the application
     AppLauncher::with_window(main_window)
-        .use_simple_logger()
+        .use_env_tracing()
         .launch(initial_state)
         .expect("Failed to launch application");
 }
@@ -130,7 +130,7 @@ impl<T, W: Widget<T>> Controller<T, W> for TooltipController {
                     ctx.set_handled();
                     if deadline > now {
                         let wait_for = deadline - now;
-                        log::info!("Waiting another {:?}", wait_for);
+                        tracing::info!("Waiting another {:?}", wait_for);
                         Some(TooltipState::Waiting {
                             last_move: *last_move,
                             timer_expire: deadline,
@@ -141,7 +141,7 @@ impl<T, W: Widget<T>> Controller<T, W> for TooltipController {
                         let win_id = ctx.new_sub_window(
                             WindowConfig::default()
                                 .show_titlebar(false)
-                                .window_size(Size::new(100.0, 23.0))
+                                .window_size_policy(WindowSizePolicy::Content)
                                 .set_level(WindowLevel::Tooltip)
                                 .set_position(
                                     ctx.window().get_position()
@@ -161,7 +161,7 @@ impl<T, W: Widget<T>> Controller<T, W> for TooltipController {
                 match event {
                     Event::MouseMove(me) if !ctx.is_hot() => {
                         // TODO another timer on leaving
-                        log::info!("Sending close window for {:?}", win_id);
+                        tracing::info!("Sending close window for {:?}", win_id);
                         ctx.submit_command(CLOSE_WINDOW.to(*win_id));
                         Some(TooltipState::Waiting {
                             last_move: now,
@@ -225,7 +225,7 @@ impl<T, W: Widget<T>> Controller<T, W> for DragWindowController {
                     let within_window_change = me.window_pos.to_vec2() - init_pos.to_vec2();
                     let old_pos = ctx.window().get_position();
                     let new_pos = old_pos + within_window_change;
-                    log::info!(
+                    tracing::info!(
                         "Drag {:?} ",
                         (
                             init_pos,

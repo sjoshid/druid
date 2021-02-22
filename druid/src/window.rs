@@ -20,10 +20,10 @@ use std::mem;
 // Automatically defaults to std::time::Instant on non Wasm platforms
 use instant::Instant;
 
-use crate::piet::{Piet, RenderContext};
+use crate::piet::{Color, Piet, RenderContext};
 use crate::shell::{Counter, Cursor, Region, WindowHandle};
 
-use crate::app::PendingWindow;
+use crate::app::{PendingWindow, WindowSizePolicy};
 use crate::contexts::ContextState;
 use crate::core::{CommandQueue, FocusChange, WidgetState};
 use crate::util::ExtendDrain;
@@ -35,6 +35,9 @@ use crate::{
     TimerToken, UpdateCtx, Widget, WidgetId, WidgetPod,
 };
 
+/// FIXME: Replace usage with Color::TRANSPARENT on next Piet release
+const TRANSPARENT: Color = Color::rgba8(0, 0, 0, 0);
+
 /// A unique identifier for a window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WindowId(u64);
@@ -44,6 +47,7 @@ pub struct Window<T> {
     pub(crate) id: WindowId,
     pub(crate) root: WidgetPod<T, Box<dyn Widget<T>>>,
     pub(crate) title: LabelText<T>,
+    size_policy: WindowSizePolicy,
     size: Size,
     invalid: Region,
     pub(crate) menu: Option<MenuDesc<T>>,
@@ -54,6 +58,7 @@ pub struct Window<T> {
     pub(crate) focus: Option<WidgetId>,
     pub(crate) handle: WindowHandle,
     pub(crate) timers: HashMap<TimerToken, WidgetId>,
+    pub(crate) transparent: bool,
     ext_handle: ExtEventSink,
     // delegate?
 }
@@ -68,9 +73,11 @@ impl<T> Window<T> {
         Window {
             id,
             root: WidgetPod::new(pending.root),
+            size_policy: pending.size_policy,
             size: Size::ZERO,
             invalid: Region::EMPTY,
             title: pending.title,
+            transparent: pending.transparent,
             menu: pending.menu,
             context_menu: None,
             last_anim: None,
@@ -163,7 +170,7 @@ impl<T: Data> Window<T> {
             if let Some(mut handle) = self.handle.get_idle_handle() {
                 handle.schedule_idle(RUN_COMMANDS_TOKEN);
             } else {
-                log::error!("failed to get idle handle");
+                tracing::error!("failed to get idle handle");
             }
         }
     }
@@ -189,7 +196,7 @@ impl<T: Data> Window<T> {
                 if let Some(widget_id) = self.timers.get(&token) {
                     Event::Internal(InternalEvent::RouteTimer(token, *widget_id))
                 } else {
-                    log::error!("No widget found for timer {:?}", token);
+                    tracing::error!("No widget found for timer {:?}", token);
                     return Handled::No;
                 }
             }
@@ -221,9 +228,9 @@ impl<T: Data> Window<T> {
 
             self.root.event(&mut ctx, &event, data, env);
             if !ctx.notifications.is_empty() {
-                log::info!("{} unhandled notifications:", ctx.notifications.len());
+                tracing::info!("{} unhandled notifications:", ctx.notifications.len());
                 for (i, n) in ctx.notifications.iter().enumerate() {
-                    log::info!("{}: {:?}", i, n);
+                    tracing::info!("{}: {:?}", i, n);
                 }
             }
             Handled::from(ctx.is_handled)
@@ -253,6 +260,15 @@ impl<T: Data> Window<T> {
             Event::MouseMove(..) | Event::Internal(InternalEvent::MouseLeave)
         ) {
             self.handle.set_cursor(&Cursor::Arrow);
+        }
+
+        if matches!(
+            (event, self.size_policy),
+            (Event::WindowSize(_), WindowSizePolicy::Content)
+        ) {
+            // Because our initial size can be zero, the window system won't ask us to paint.
+            // So layout ourselves and hopefully we resize
+            self.layout(queue, data, env);
         }
 
         self.post_event_processing(&mut widget_state, queue, data, env, false);
@@ -307,8 +323,8 @@ impl<T: Data> Window<T> {
             for rect in self.invalid.rects() {
                 self.handle.invalidate_rect(*rect);
             }
-            self.invalid.clear();
         }
+        self.invalid.clear();
     }
 
     #[cfg(test)]
@@ -353,7 +369,11 @@ impl<T: Data> Window<T> {
 
         piet.fill(
             invalid.bounding_box(),
-            &env.get(crate::theme::WINDOW_BACKGROUND_COLOR),
+            &(if self.transparent {
+                TRANSPARENT
+            } else {
+                env.get(crate::theme::WINDOW_BACKGROUND_COLOR)
+            }),
         );
         self.paint(piet, invalid, queue, data, env);
     }
@@ -367,10 +387,28 @@ impl<T: Data> Window<T> {
             widget_state: &mut widget_state,
             mouse_pos: self.last_mouse_pos,
         };
-        let bc = BoxConstraints::tight(self.size);
-        self.root.layout(&mut layout_ctx, &bc, data, env);
+        let bc = match self.size_policy {
+            WindowSizePolicy::User => BoxConstraints::tight(self.size),
+            WindowSizePolicy::Content => BoxConstraints::UNBOUNDED,
+        };
+        let content_size = self.root.layout(&mut layout_ctx, &bc, data, env);
+        if let WindowSizePolicy::Content = self.size_policy {
+            let insets = self.handle.content_insets();
+            let full_size = (content_size.to_rect() + insets).size();
+            if self.size != full_size {
+                self.size = full_size;
+                self.handle.set_size(full_size)
+            }
+        }
         self.root
             .set_origin(&mut layout_ctx, data, env, Point::ORIGIN);
+        self.lifecycle(
+            queue,
+            &LifeCycle::Internal(InternalLifeCycle::ParentWindowOrigin),
+            data,
+            env,
+            false,
+        );
         self.post_event_processing(&mut widget_state, queue, data, env, true);
     }
 

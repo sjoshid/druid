@@ -8,13 +8,25 @@ You can find its changes [documented below](#070---2021-01-01).
 ### Highlights
 
 ### Added
+- Add `scroll()` method in WidgetExt ([#1600] by [@totsteps])
+- `write!` for `RichTextBuilder` ([#1596] by [@Maan2003])
 - Sub windows: Allow opening windows that share state with arbitrary parts of the widget hierarchy ([#1254] by [@rjwittams])
 - WindowCloseRequested/WindowDisconnected event when a window is closing ([#1254] by [@rjwittams])
 - RichTextBuilder ([#1520] by [@Maan2003])
 - `get_external_handle` on `DelegateCtx` ([#1526] by [@Maan2003])
 - `AppLauncher::localization_resources` to use custom l10n resources. ([#1528] by [@edwin0cheng])
+- Shell: get_content_insets and mac implementation ([#1532] by [@rjwittams])
+- Contexts: to_window and to_screen (useful for relatively positioning sub windows) ([#1532] by [@rjwittams])
+- WindowSizePolicy: allow windows to be sized by their content ([#1532] by [@rjwittams])
+- Implemented `Data` for more datatypes from `std` ([#1534] by [@derekdreery])
+- Shell: windows implementation from content_insets ([#1592] by [@HoNile])
 
 ### Changed
+
+- Warn on unhandled Commands ([#1533] by [@Maan2003])
+- `WindowDesc::new` takes the root widget directly instead of a closure ([#1559] by [@lassipulkkinen])
+- Switch to trace-based logging ([#1562] by [@PoignardAzur])
+- Spacers in `Flex` are now implemented by calculating the space in `Flex` instead of creating a widget for it ([#1584] by [@JAicewizard])
 
 ### Deprecated
 
@@ -23,6 +35,7 @@ You can find its changes [documented below](#070---2021-01-01).
 ### Fixed
 
 - Fixed docs of derived Lens ([#1523] by [@Maan2003])
+- Use correct fill rule when rendering SVG paths ([#1606] by [@SecondFlight])
 
 ### Visual
 
@@ -405,6 +418,10 @@ Last release without a changelog :(
 [@Maan2003]: https://github.com/Maan2003
 [@derekdreery]: https://github.com/derekdreery
 [@MaximilianKoestler]: https://github.com/MaximilianKoestler
+[@lassipulkkinen]: https://github.com/lassipulkkinen
+[@Poignardazur]: https://github.com/PoignardAzur
+[@HoNile]: https://github.com/HoNile
+[@SecondFlight]: https://github.com/SecondFlight
 
 [#599]: https://github.com/linebender/druid/pull/599
 [#611]: https://github.com/linebender/druid/pull/611
@@ -597,9 +614,20 @@ Last release without a changelog :(
 [#1452]: https://github.com/linebender/druid/pull/1452
 [#1520]: https://github.com/linebender/druid/pull/1520
 [#1523]: https://github.com/linebender/druid/pull/1523
-[#1526]: https://github.com/linebender/druid/pull/1523
+[#1526]: https://github.com/linebender/druid/pull/1526
+[#1532]: https://github.com/linebender/druid/pull/1532
+[#1533]: https://github.com/linebender/druid/pull/1533
+[#1534]: https://github.com/linebender/druid/pull/1534
+[#1254]: https://github.com/linebender/druid/pull/1254
+[#1559]: https://github.com/linebender/druid/pull/1559
+[#1562]: https://github.com/linebender/druid/pull/1562
+[#1592]: https://github.com/linebender/druid/pull/1592
+[#1596]: https://github.com/linebender/druid/pull/1596
+[#1600]: https://github.com/linebender/druid/pull/1600
+[#1606]: https://github.com/linebender/druid/pull/1606
 
-[Unreleased]: https://github.com/linebender/druid/compare/v0.6.0...master
+[Unreleased]: https://github.com/linebender/druid/compare/v0.7.0...master
+[0.7.0]: https://github.com/linebender/druid/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/linebender/druid/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/linebender/druid/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/linebender/druid/compare/v0.3.2...v0.4.0

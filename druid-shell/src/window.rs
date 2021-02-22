@@ -22,13 +22,15 @@ use crate::common_util::Counter;
 use crate::dialog::{FileDialogOptions, FileInfo};
 use crate::error::Error;
 use crate::keyboard::KeyEvent;
-use crate::kurbo::{Point, Rect, Size};
+use crate::kurbo::{Insets, Point, Rect, Size};
 use crate::menu::Menu;
 use crate::mouse::{Cursor, CursorDesc, MouseEvent};
 use crate::platform::window as platform;
 use crate::region::Region;
 use crate::scale::Scale;
 use piet_common::PietText;
+#[cfg(feature = "raw-win-handle")]
+use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 /// A token that uniquely identifies a running timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
@@ -194,10 +196,17 @@ impl WindowHandle {
         self.0.set_position(position.into())
     }
 
-    /// Returns the position of the window in [pixels](crate::Scale), relative to the origin of the
+    /// Returns the position of the top left corner of the window in [pixels](crate::Scale), relative to the origin of the
     /// virtual screen.
     pub fn get_position(&self) -> Point {
         self.0.get_position()
+    }
+
+    /// Returns the insets of the window content from its position and size in [pixels](crate::Scale).
+    ///
+    /// This is to account for any window system provided chrome, eg. title bars.
+    pub fn content_insets(&self) -> Insets {
+        self.0.content_insets()
     }
 
     /// Set the window's size in [display points](crate::Scale).
@@ -331,6 +340,13 @@ impl WindowHandle {
     }
 }
 
+#[cfg(feature = "raw-win-handle")]
+unsafe impl HasRawWindowHandle for WindowHandle {
+    fn raw_window_handle(&self) -> RawWindowHandle {
+        self.0.raw_window_handle()
+    }
+}
+
 /// A builder type for creating new windows.
 pub struct WindowBuilder(platform::WindowBuilder);
 
@@ -379,6 +395,11 @@ impl WindowBuilder {
     /// Set whether the window should have a titlebar and decorations.
     pub fn show_titlebar(&mut self, show_titlebar: bool) {
         self.0.show_titlebar(show_titlebar)
+    }
+
+    /// Set whether the window background should be transparent
+    pub fn set_transparent(&mut self, transparent: bool) {
+        self.0.set_transparent(transparent)
     }
 
     /// Sets the initial window position in [pixels](crate::Scale), relative to the origin of the
