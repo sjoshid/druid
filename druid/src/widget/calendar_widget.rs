@@ -89,7 +89,7 @@ impl Widget<DateDetails> for InnerDate {
 		if data.date_is_todays {
 			self.dynamic_label.set_background(Color::rgb(0., 1., 0.));
 		} else {
-			self.dynamic_label.remove_background();
+			self.dynamic_label.clear_background();
 		}
 		self.dynamic_label.paint(ctx, data, env);
 	}
@@ -137,7 +137,7 @@ impl Widget<DateDetails> for DateWrapper {
 		if border {
 			self.date_wrapper.set_border(Color::rgb(0., 1., 0.), 2.);
 		} else {
-			self.date_wrapper.remove_border();
+			self.date_wrapper.clear_border();
 		}
 		self.date_wrapper.paint(ctx, data, env);
 	}
