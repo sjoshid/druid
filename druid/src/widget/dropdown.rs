@@ -57,9 +57,10 @@ impl<T: Data> Widget<T> for Dropdown<T> {
                         WindowConfig::default()
                             .set_level(WindowLevel::DropDown)
                             .set_position(origin)
-                            .window_size_policy(WindowSizePolicy::Content)
+                            //.window_size_policy(WindowSizePolicy::Content)
                             .resizable(false)
-                            .show_titlebar(false),
+                            .show_titlebar(false)
+                            .window_size((20., 20.)), //sj_todo set window size to whatever you want.
                         Dropped { child: widget },
                         data.clone(),
                         env.clone(),
