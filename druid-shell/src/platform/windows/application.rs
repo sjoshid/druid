@@ -15,7 +15,7 @@
 //! Windows implementation of features at the application scope.
 
 use std::cell::RefCell;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ptr;
 use std::rc::Rc;
@@ -124,7 +124,13 @@ impl Application {
     }
 
     pub fn get_window_handle(&self, window_id: Option<u64>) -> HWND {
-        let vv = self.state.borrow().window_ids.get(&window_id).unwrap().clone();
+        let vv = self
+            .state
+            .borrow()
+            .window_ids
+            .get(&window_id)
+            .unwrap()
+            .clone();
         vv
     }
 

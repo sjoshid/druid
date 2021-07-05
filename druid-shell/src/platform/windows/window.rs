@@ -1311,7 +1311,9 @@ impl WindowBuilder {
 
     pub fn set_level(&mut self, level: WindowLevel) {
         match level {
-            WindowLevel::AppWindow | WindowLevel::Tooltip | WindowLevel::DropDown => self.level = Some(level),
+            WindowLevel::AppWindow | WindowLevel::Tooltip | WindowLevel::DropDown => {
+                self.level = Some(level)
+            }
             _ => {
                 warn!("WindowBuilder::set_level({:?}) is currently unimplemented for Windows platforms.", level);
             }

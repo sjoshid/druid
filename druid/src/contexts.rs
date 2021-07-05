@@ -443,7 +443,14 @@ impl_context_method!(EventCtx<'_, '_>, UpdateCtx<'_, '_>, LifeCycleCtx<'_, '_>, 
         env: Env,
     ) -> WindowId {
         trace!("new_sub_window");
-        let req = SubWindowDesc::new(self.window_id(), self.widget_id(), window_config, widget, data, env);
+        let req = SubWindowDesc::new(
+            self.window_id(),
+            self.widget_id(),
+            window_config,
+            widget,
+            data,
+            env,
+        );
         let window_id = req.window_id;
         self.widget_state
             .add_sub_window_host(window_id, req.host_id);

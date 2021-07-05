@@ -1,3 +1,5 @@
+use crate::event::InternalLifeCycle::RouteFocusChanged;
+use crate::InternalLifeCycle;
 use druid::widget::prelude::*;
 use druid::widget::WidgetExt;
 use druid::WindowSizePolicy;
@@ -8,8 +10,6 @@ use druid::{
 use druid::{Point, Selector, WindowConfig};
 use druid::{WindowId, WindowLevel};
 use druid_shell::keyboard_types::Key;
-use crate::event::InternalLifeCycle::RouteFocusChanged;
-use crate::InternalLifeCycle;
 use tracing::info;
 
 pub struct Dropdown<T> {
