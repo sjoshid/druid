@@ -515,6 +515,14 @@ impl WindowBuilder {
         self.0.set_window_state(state);
     }
 
+    pub fn set_window_id(&mut self, window_id: Option<u64>) {
+        self.0.set_window_id(window_id);
+    }
+
+    pub fn set_parent_window_id(&mut self, parent_window_id: Option<u64>) {
+        self.0.set_parent_window_id(parent_window_id);
+    }
+
     /// Attempt to construct the platform window.
     ///
     /// If this fails, your application should exit.

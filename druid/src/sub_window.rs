@@ -28,6 +28,7 @@ use tracing::{instrument, warn};
 /// The required information to create a sub window, including the widget it should host, and the
 /// config of the window to be created.
 pub(crate) struct SubWindowDesc {
+    pub(crate) parent_window_id: Option<WindowId>,
     pub(crate) host_id: WidgetId,
     pub(crate) sub_window_root: Box<dyn Widget<()>>,
     pub(crate) window_config: WindowConfig,
@@ -45,6 +46,7 @@ impl SubWindowDesc {
     /// It will synchronise data updates with the provided parent_id if "sync" is true, and it will expect to be sent
     /// SUB_WINDOW_PARENT_TO_HOST commands to update the provided data for the widget.
     pub fn new<U, W: Widget<U>>(
+        parent_window_id: WindowId,
         parent_id: WidgetId,
         window_config: WindowConfig,
         widget: W,
@@ -58,6 +60,7 @@ impl SubWindowDesc {
         let host_id = WidgetId::next();
         let sub_window_host = SubWindowHost::new(host_id, parent_id, widget, data, env).boxed();
         SubWindowDesc {
+            parent_window_id: Some(parent_window_id),
             host_id,
             sub_window_root: sub_window_host,
             window_config,
@@ -71,7 +74,7 @@ impl SubWindowDesc {
     ) -> Result<WindowHandle, Error> {
         let sub_window_root = self.sub_window_root;
         let pending = PendingWindow::new(sub_window_root.lens(Unit::default()));
-        app_state.build_native_window(self.window_id, pending, self.window_config)
+        app_state.build_native_window(self.window_id, self.parent_window_id, pending, self.window_config)
     }
 }
 

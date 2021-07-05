@@ -99,6 +99,8 @@ pub(crate) struct WindowBuilder {
     position: Option<Point>,
     level: Option<WindowLevel>,
     state: window::WindowState,
+    window_id: Option<u64>,
+    parent_window_id: Option<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1252,6 +1254,8 @@ impl WindowBuilder {
             position: None,
             level: None,
             state: window::WindowState::Restored,
+            window_id: None,
+            parent_window_id: None,
         }
     }
 
@@ -1307,11 +1311,19 @@ impl WindowBuilder {
 
     pub fn set_level(&mut self, level: WindowLevel) {
         match level {
-            WindowLevel::AppWindow | WindowLevel::Tooltip => self.level = Some(level),
+            WindowLevel::AppWindow | WindowLevel::Tooltip | WindowLevel::DropDown => self.level = Some(level),
             _ => {
                 warn!("WindowBuilder::set_level({:?}) is currently unimplemented for Windows platforms.", level);
             }
         }
+    }
+
+    pub fn set_window_id(&mut self, window_id: Option<u64>) {
+        self.window_id = window_id;
+    }
+
+    pub fn set_parent_window_id(&mut self, parent_window_id: Option<u64>) {
+        self.parent_window_id = parent_window_id;
     }
 
     pub fn build(self) -> Result<WindowHandle, Error> {
@@ -1329,10 +1341,11 @@ impl WindowBuilder {
                 present_strategy: self.present_strategy,
             };
 
-            let (pos_x, pos_y) = match self.position {
+            let (mut pos_x, mut pos_y) = match self.position {
                 Some(pos) => (pos.x as i32, pos.y as i32),
                 None => (CW_USEDEFAULT, CW_USEDEFAULT),
             };
+            println!("x {} y {}", pos_x, pos_y);
             let scale = Scale::new(1.0, 1.0);
 
             let mut area = ScaledArea::default();
@@ -1356,6 +1369,7 @@ impl WindowBuilder {
             let mut dwStyle = WS_OVERLAPPEDWINDOW;
             let mut dwExStyle: DWORD = 0;
             let mut focusable = true;
+            let mut parent_hwnd = 0 as HWND;
             if let Some(level) = self.level {
                 match level {
                     WindowLevel::AppWindow => (),
@@ -1367,6 +1381,10 @@ impl WindowBuilder {
                     WindowLevel::DropDown => {
                         dwStyle = WS_CHILD;
                         dwExStyle = 0;
+                        parent_hwnd = self.app.get_window_handle(self.parent_window_id);
+                        /*pos_x = 0;
+                        pos_y = 0;*/
+                        focusable = false;
                     }
                     WindowLevel::Modal => {
                         dwStyle = WS_OVERLAPPED;
@@ -1439,12 +1457,13 @@ impl WindowBuilder {
                 pos_y,
                 width,
                 height,
-                0 as HWND,
+                parent_hwnd,
                 hmenu,
                 0 as HINSTANCE,
                 win,
             );
             if hwnd.is_null() {
+                println!("{:?}", Error::Hr(HRESULT_FROM_WIN32(GetLastError())));
                 return Err(Error::NullHwnd);
             }
 
@@ -1469,7 +1488,7 @@ impl WindowBuilder {
                 }
             }
 
-            self.app.add_window(hwnd);
+            self.app.add_window(hwnd, self.window_id);
 
             if let Some(accels) = accels {
                 register_accel(hwnd, &accels);

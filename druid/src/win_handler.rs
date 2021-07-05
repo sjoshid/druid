@@ -101,6 +101,7 @@ struct Inner<T> {
     pub(crate) env: Env,
     pub(crate) data: T,
     ime_focus_change: Option<Box<dyn Fn()>>,
+    parent_window_id: Option<WindowId>,
 }
 
 /// All active windows.
@@ -170,6 +171,7 @@ impl<T> AppState<T> {
             env,
             windows: Windows::default(),
             ime_focus_change: None,
+            parent_window_id: None,
         }));
 
         AppState { inner }
@@ -778,7 +780,9 @@ impl<T: Data> AppState<T> {
     fn new_sub_window(&mut self, cmd: Command) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(transfer) = cmd.get(sys_cmd::NEW_SUB_WINDOW) {
             if let Some(sub_window_desc) = transfer.take() {
+                self.inner.borrow_mut().parent_window_id = sub_window_desc.parent_window_id;
                 let window = sub_window_desc.make_sub_window(self)?;
+                println!("win_handle 785");
                 window.show();
                 Ok(())
             } else {
@@ -851,10 +855,19 @@ impl<T: Data> AppState<T> {
     pub(crate) fn build_native_window(
         &mut self,
         id: WindowId,
+        parent_id: Option<WindowId>,
         mut pending: PendingWindow<T>,
         config: WindowConfig,
     ) -> Result<WindowHandle, PlatformError> {
         let mut builder = WindowBuilder::new(self.app());
+        //sj_todo when a window is launched (parent or child) id.0 is its window id.
+        builder.set_window_id(Some(id.0));
+
+        //sj_todo will be some only when called for a sub window.
+        if let Some(pid) = parent_id {
+            builder.set_parent_window_id(Some(pid.0));
+        }
+
         config.apply_to_builder(&mut builder);
 
         let data = self.data();

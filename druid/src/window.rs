@@ -42,7 +42,7 @@ pub type ImeUpdateFn = dyn FnOnce(crate::shell::text::Event);
 
 /// A unique identifier for a window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct WindowId(u64);
+pub struct WindowId(pub(crate) u64);
 
 /// Per-window state not owned by user code.
 pub struct Window<T> {

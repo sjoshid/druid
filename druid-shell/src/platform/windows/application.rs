@@ -15,7 +15,7 @@
 //! Windows implementation of features at the application scope.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::mem;
 use std::ptr;
 use std::rc::Rc;
@@ -52,6 +52,7 @@ pub(crate) struct Application {
 struct State {
     quitting: bool,
     windows: HashSet<HWND>,
+    window_ids: HashMap<Option<u64>, HWND>,
 }
 
 /// Used to ensure the window class is registered only once per process.
@@ -63,6 +64,7 @@ impl Application {
         let state = Rc::new(RefCell::new(State {
             quitting: false,
             windows: HashSet::new(),
+            window_ids: HashMap::new(),
         }));
         let fonts = D2DLoadedFonts::default();
         Ok(Application { state, fonts })
@@ -111,12 +113,19 @@ impl Application {
         Ok(())
     }
 
-    pub fn add_window(&self, hwnd: HWND) -> bool {
+    pub fn add_window(&self, hwnd: HWND, window_id: Option<u64>) -> bool {
+        //println!("adding window id {:?} => HWND {}", window_id, hwnd as u32);
+        self.state.borrow_mut().window_ids.insert(window_id, hwnd);
         self.state.borrow_mut().windows.insert(hwnd)
     }
 
     pub fn remove_window(&self, hwnd: HWND) -> bool {
         self.state.borrow_mut().windows.remove(&hwnd)
+    }
+
+    pub fn get_window_handle(&self, window_id: Option<u64>) -> HWND {
+        let vv = self.state.borrow().window_ids.get(&window_id).unwrap().clone();
+        vv
     }
 
     pub fn run(self, _handler: Option<Box<dyn AppHandler>>) {

@@ -7,6 +7,10 @@ use druid::{
 };
 use druid::{Point, Selector, WindowConfig};
 use druid::{WindowId, WindowLevel};
+use druid_shell::keyboard_types::Key;
+use crate::event::InternalLifeCycle::RouteFocusChanged;
+use crate::InternalLifeCycle;
+use tracing::info;
 
 pub struct Dropdown<T> {
     header: Box<dyn Widget<T>>,
@@ -51,7 +55,7 @@ impl<T: Data> Widget<T> for Dropdown<T> {
         match event {
             Event::Command(n) if n.is(DROP) => {
                 let widget = (self.drop)(data, env);
-                let origin = Point::new(ctx.window_origin().x, ctx.window_origin().y + ctx.size().height);
+                let origin = ctx.to_screen(Point::new(0., ctx.size().height));
                 self.window = Some(
                     ctx.new_sub_window(
                         WindowConfig::default()
@@ -78,13 +82,13 @@ impl<T: Data> Widget<T> for Dropdown<T> {
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
-        self.header.update(ctx, old_data, data, env)
+        self.header.update(ctx, old_data, data, env);
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx, bc: &BoxConstraints, data: &T, env: &Env) -> Size {
         if let Some(window) = self.window {
-            ctx.submit_command(CLOSE_WINDOW.to(window));
-            self.window = None;
+            //ctx.submit_command(CLOSE_WINDOW.to(window));
+            //self.window = None;
         }
         self.header.layout(ctx, bc, data, env)
     }
@@ -105,7 +109,7 @@ impl<T: Data> Widget<T> for Dropped<T> {
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
         if let LifeCycle::HotChanged(false) = event {
-            ctx.window().close()
+            //ctx.window().close()
         }
 
         self.child.lifecycle(ctx, event, data, env)
@@ -114,7 +118,7 @@ impl<T: Data> Widget<T> for Dropped<T> {
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
         self.child.update(ctx, old_data, data, env);
         if !old_data.same(data) {
-            ctx.window().close()
+            //ctx.window().close()
         }
     }
 

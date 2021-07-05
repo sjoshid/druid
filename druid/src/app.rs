@@ -587,6 +587,6 @@ impl<T: Data> WindowDesc<T> {
         self,
         state: &mut AppState<T>,
     ) -> Result<WindowHandle, PlatformError> {
-        state.build_native_window(self.id, self.pending, self.config)
+        state.build_native_window(self.id, None, self.pending, self.config)
     }
 }
