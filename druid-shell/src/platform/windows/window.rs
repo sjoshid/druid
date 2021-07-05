@@ -1347,7 +1347,6 @@ impl WindowBuilder {
                 Some(pos) => (pos.x as i32, pos.y as i32),
                 None => (CW_USEDEFAULT, CW_USEDEFAULT),
             };
-            println!("x {} y {}", pos_x, pos_y);
             let scale = Scale::new(1.0, 1.0);
 
             let mut area = ScaledArea::default();

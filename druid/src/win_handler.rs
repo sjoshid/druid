@@ -782,7 +782,6 @@ impl<T: Data> AppState<T> {
             if let Some(sub_window_desc) = transfer.take() {
                 self.inner.borrow_mut().parent_window_id = sub_window_desc.parent_window_id;
                 let window = sub_window_desc.make_sub_window(self)?;
-                println!("win_handle 785");
                 window.show();
                 Ok(())
             } else {
